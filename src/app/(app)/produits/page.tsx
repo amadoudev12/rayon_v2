@@ -9,6 +9,7 @@ import { SelectFilter } from "@/components/ui/SelectFilter";
 import { Pagination } from "@/components/ui/Pagination";
 import { ProductsTable } from "./ProductsTable";
 import { NewProductButton } from "./NewProductButton";
+import { ImportProductsButton } from "./ImportProductsButton";
 
 type ProductsPageData = {
   products: ComponentProps<typeof ProductsTable>["products"];
@@ -33,7 +34,14 @@ export default function ProductsPage() {
       <PageHeader
         title="Produits"
         description="Gérez votre catalogue et vos prix."
-        action={canManage ? <NewProductButton categories={categories} /> : undefined}
+        action={
+          canManage ? (
+            <>
+              <ImportProductsButton />
+              <NewProductButton categories={categories} />
+            </>
+          ) : undefined
+        }
       />
 
       <Card>
