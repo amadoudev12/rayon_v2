@@ -13,7 +13,7 @@ import { formatMoney, formatNumber, formatDate, formatDateTime } from "@/lib/for
 
 /** Chiffres du tableau de bord, calculés par le backend (`getDashboardStats`). */
 type DashboardStats = {
-  period: { start: string; previousStart: string; previousEnd: string };
+  period: { start: string; previousStart: string; previousEnd: string; month: string; previousMonth: string };
   revenue: number;
   previousRevenue: number;
   /** Variation en % par rapport à la même période du mois précédent ; null si rien à comparer. */
@@ -65,6 +65,12 @@ export function loader() {
   return loadPage<DashboardPageData>("/dashboard");
 }
 
+/** Mois « AAAA-MM » du backend → date locale en milieu de mois, qu'aucun fuseau ne fait changer de mois. */
+function monthDate(month: string) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  return new Date(year, monthNumber - 1, 15);
+}
+
 function formatPercent(value: number) {
   return `${value > 0 ? "+" : ""}${value.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} %`;
 }
@@ -73,8 +79,8 @@ export default function DashboardPage() {
   const { currency, storeName, stats, totalProducts, totalSales } = useLoaderData<DashboardPageData>();
 
   const isNewShop = totalProducts === 0 || totalSales === 0;
-  const monthLabel = formatDate(stats.period.start, { month: "long", year: "numeric" });
-  const previousMonthLabel = formatDate(stats.period.previousStart, { month: "long" });
+  const monthLabel = formatDate(monthDate(stats.period.month), { month: "long", year: "numeric" });
+  const previousMonthLabel = formatDate(monthDate(stats.period.previousMonth), { month: "long" });
 
   return (
     <div>
