@@ -3,6 +3,7 @@ import { useRouter } from "@/lib/navigation";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { PurchaseFormModal } from "./PurchaseFormModal";
+import { PurchaseDetailsModal } from "./PurchaseDetailsModal";
 
 export function NewPurchaseButton({
   products,
@@ -15,6 +16,8 @@ export function NewPurchaseButton({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  // Achat tout juste enregistré : son bon d'achat s'affiche, prêt à imprimer.
+  const [createdId, setCreatedId] = useState<number | null>(null);
 
   return (
     <>
@@ -25,11 +28,15 @@ export function NewPurchaseButton({
       <PurchaseFormModal
         open={open}
         onClose={() => setOpen(false)}
-        onSaved={() => router.refresh()}
+        onSaved={(purchaseId) => {
+          setCreatedId(purchaseId);
+          router.refresh();
+        }}
         products={products}
         suppliers={suppliers}
         currency={currency}
       />
+      <PurchaseDetailsModal purchaseId={createdId} currency={currency} title="Achat enregistré" onClose={() => setCreatedId(null)} />
     </>
   );
 }

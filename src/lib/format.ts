@@ -2,6 +2,11 @@ export function formatMoney(amount: number, currency = "XOF") {
   return new Intl.NumberFormat("fr-FR", { style: "currency", currency, maximumFractionDigits: 0 }).format(amount);
 }
 
+/** Numéro lisible d'un document : « VTE-00025 », « ACH-00003 », « DEV-00012 ». */
+export function documentNumber(prefix: "VTE" | "ACH" | "DEV", id: number) {
+  return `${prefix}-${String(id).padStart(5, "0")}`;
+}
+
 export function formatNumber(value: number) {
   return new Intl.NumberFormat("fr-FR").format(value);
 }

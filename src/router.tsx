@@ -3,6 +3,7 @@ import { redirectIfSignedIn } from "@/lib/api";
 import RootLayout, { RootError } from "@/app/root";
 import NotFound from "@/app/not-found";
 import HomePage from "@/app/page";
+import DemoPage from "@/app/demo/page";
 import AuthLayout from "@/app/(auth)/layout";
 import LoginPage from "@/app/(auth)/login/page";
 import RegisterPage from "@/app/(auth)/register/page";
@@ -16,6 +17,9 @@ import StockPage, { loader as stockLoader } from "@/app/(app)/stock/page";
 import StockMovementsPage, { loader as stockMovementsLoader } from "@/app/(app)/stock/mouvements/page";
 import SalesPage, { loader as salesLoader } from "@/app/(app)/ventes/page";
 import NewSalePage, { loader as newSaleLoader } from "@/app/(app)/ventes/nouvelle/page";
+import CreditsPage, { loader as creditsLoader } from "@/app/(app)/creances/page";
+import QuotesPage, { loader as quotesLoader } from "@/app/(app)/devis/page";
+import NewQuotePage, { loader as newQuoteLoader } from "@/app/(app)/devis/nouveau/page";
 import PurchasesPage, { loader as purchasesLoader } from "@/app/(app)/achats/page";
 import CustomersPage, { loader as customersLoader } from "@/app/(app)/clients/page";
 import SuppliersPage, { loader as suppliersLoader } from "@/app/(app)/fournisseurs/page";
@@ -50,6 +54,8 @@ export const router = createBrowserRouter([
     children: [
       // Pages publiques : un visiteur déjà connecté est envoyé vers son espace.
       { path: "/", loader: ({ request }) => redirectIfSignedIn(request), element: <HomePage /> },
+      // Démonstration animée : visible par tous, connecté ou non.
+      { path: "demo", element: <DemoPage /> },
       {
         element: <AuthLayout />,
         loader: ({ request }) => redirectIfSignedIn(request),
@@ -76,6 +82,9 @@ export const router = createBrowserRouter([
               { path: "stock/mouvements", loader: stockMovementsLoader, element: <StockMovementsPage /> },
               { path: "ventes", loader: salesLoader, element: <SalesPage /> },
               { path: "ventes/nouvelle", loader: newSaleLoader, element: <NewSalePage /> },
+              { path: "creances", loader: creditsLoader, element: <CreditsPage /> },
+              { path: "devis", loader: quotesLoader, element: <QuotesPage /> },
+              { path: "devis/nouveau", loader: newQuoteLoader, element: <NewQuotePage /> },
               { path: "achats", loader: purchasesLoader, element: <PurchasesPage /> },
               { path: "clients", loader: customersLoader, element: <CustomersPage /> },
               { path: "fournisseurs", loader: suppliersLoader, element: <SuppliersPage /> },

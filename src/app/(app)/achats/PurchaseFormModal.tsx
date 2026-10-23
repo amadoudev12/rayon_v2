@@ -21,7 +21,8 @@ export function PurchaseFormModal({
 }: {
   open: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  /** Reçoit l'identifiant de l'achat créé (pour afficher son bon d'achat). */
+  onSaved: (purchaseId: number) => void;
   products: Product[];
   suppliers: Supplier[];
   currency: string;
@@ -31,9 +32,13 @@ export function PurchaseFormModal({
   const [supplierId, setSupplierId] = useState("");
   const [selectedProductId, setSelectedProductId] = useState("");
   const [note, setNote] = useState("");
+  // Vide : l'achat est payé en totalité.
+  const [paidInput, setPaidInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const total = lines.reduce((sum, line) => sum + line.quantity * line.unitCost, 0);
+  const paid = paidInput === "" ? total : Number(paidInput);
+  const paidError = paid < 0 || paid > total ? "Le montant payé doit être compris entre 0 et le total." : null;
   const availableProducts = useMemo(
     () => products.filter((product) => !lines.some((line) => line.productId === product.id)),
     [products, lines],
@@ -61,10 +66,11 @@ export function PurchaseFormModal({
     setLines([]);
     setSupplierId("");
     setNote("");
+    setPaidInput("");
   }
 
   async function submit() {
-    if (lines.length === 0) return;
+    if (lines.length === 0 || paidError) return;
     setSubmitting(true);
     try {
       const response = await apiFetch("/api/purchases", {
@@ -73,6 +79,7 @@ export function PurchaseFormModal({
         body: JSON.stringify({
           lignes: lines.map((line) => ({ produitId: line.productId, quantite: line.quantity, coutUnitaire: line.unitCost })),
           fournisseurId: supplierId ? Number(supplierId) : undefined,
+          montantPaye: paidInput === "" ? undefined : paid,
           note: note || undefined,
         }),
       });
@@ -81,10 +88,10 @@ export function PurchaseFormModal({
         push(body?.message ?? "Impossible d'enregistrer l'achat", "error");
         return;
       }
-      push("Achat enregistré, le stock a été mis à jour", "success");
+      push("Achat enregistré : stock et prix d'achat mis à jour", "success");
       reset();
-      onSaved();
       onClose();
+      onSaved(body.data.id);
     } finally {
       setSubmitting(false);
     }
@@ -95,7 +102,7 @@ export function PurchaseFormModal({
       open={open}
       onClose={onClose}
       title="Nouvel achat"
-      description="Le stock est mis à jour dès l'enregistrement."
+      description="Le stock est mis à jour dès l'enregistrement, et le coût saisi devient le prix d'achat du produit pour les prochaines ventes."
       size="lg"
     >
       <div className="space-y-5">
@@ -200,6 +207,31 @@ export function PurchaseFormModal({
           <input id="purchaseNote" value={note} onChange={(event) => setNote(event.target.value)} className={inputClass} />
         </div>
 
+        <div>
+          <label htmlFor="purchasePaid" className="mb-1.5 block text-[13px] font-medium text-slate-700">
+            Montant payé au fournisseur <span className="font-normal text-slate-400">(vide = payé en totalité)</span>
+          </label>
+          <input
+            id="purchasePaid"
+            type="number"
+            min={0}
+            max={total}
+            step="any"
+            inputMode="decimal"
+            value={paidInput}
+            placeholder={String(total)}
+            onChange={(event) => setPaidInput(event.target.value)}
+            className={`${inputClass} tabular`}
+          />
+          {paidError ? (
+            <p className="mt-1.5 text-xs font-medium text-red-600">{paidError}</p>
+          ) : (
+            total - paid > 0 && (
+              <p className="mt-1.5 text-xs font-medium text-amber-700">Reste à payer : {formatMoney(total - paid, currency)}</p>
+            )
+          )}
+        </div>
+
         <div className="-mx-5 flex flex-col gap-3 border-t border-slate-100 px-5 pt-4 sm:-mx-6 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <p className="text-sm text-slate-500">
             Total{" "}
@@ -209,7 +241,7 @@ export function PurchaseFormModal({
             <Button type="button" variant="secondary" onClick={onClose}>
               Annuler
             </Button>
-            <Button type="button" loading={submitting} disabled={lines.length === 0} onClick={submit}>
+            <Button type="button" loading={submitting} disabled={lines.length === 0 || Boolean(paidError)} onClick={submit}>
               Enregistrer l&apos;achat
             </Button>
           </div>

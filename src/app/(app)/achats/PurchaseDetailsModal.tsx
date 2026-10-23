@@ -3,7 +3,9 @@ import { Modal, ModalFooter } from "@/components/ui/Modal";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
-import { formatDateTime, formatMoney, formatNumber } from "@/lib/format";
+import { DocumentActions } from "@/components/documents/DocumentActions";
+import { documentNumber, formatDateTime, formatMoney, formatNumber } from "@/lib/format";
+import type { CommercialDocument } from "@/lib/commercial-document";
 import { apiFetch } from "@/lib/api";
 
 /**
@@ -13,6 +15,7 @@ import { apiFetch } from "@/lib/api";
 type PurchaseDetails = {
   id: number;
   total: string | number;
+  montantPaye: string | number;
   note: string | null;
   creeLe: string;
   lignes: {
@@ -24,8 +27,42 @@ type PurchaseDetails = {
   }[];
   fournisseur: { id: number; nom: string; telephone: string | null } | null;
   creePar: { id: number; prenom: string; nom: string };
-  boutique: { id: number; nom: string };
+  boutique: { id: number; nom: string; adresse: string | null; telephone: string | null; organisation: { nom: string } };
 };
+
+/** Bon d'achat : fournisseur, produits reçus, montant payé et reste à payer. */
+function purchaseDocument(purchase: PurchaseDetails, currency: string): CommercialDocument {
+  const remaining = Number(purchase.total) - Number(purchase.montantPaye);
+  return {
+    title: "Bon d'achat",
+    number: documentNumber("ACH", purchase.id),
+    date: purchase.creeLe,
+    withTime: true,
+    shop: {
+      name: purchase.boutique.organisation.nom,
+      storeName: purchase.boutique.nom,
+      address: purchase.boutique.adresse,
+      phone: purchase.boutique.telephone,
+    },
+    party: { label: "Fournisseur", name: purchase.fournisseur?.nom ?? "Non précisé", details: [purchase.fournisseur?.telephone] },
+    meta: [{ label: "Enregistré par", value: `${purchase.creePar.prenom} ${purchase.creePar.nom}` }],
+    badge: remaining > 0 ? "Achat à crédit" : undefined,
+    lines: purchase.lignes.map((line) => ({
+      designation: line.produit.nom,
+      quantity: `${formatNumber(line.quantite)} ${line.produit.unite}`,
+      unitPrice: Number(line.coutUnitaire),
+      total: Number(line.sousTotal),
+    })),
+    totals: [
+      { label: "Total", value: Number(purchase.total), strong: true },
+      { label: "Montant payé", value: Number(purchase.montantPaye) },
+      ...(remaining > 0 ? [{ label: "Reste à payer", value: remaining, strong: true }] : []),
+    ],
+    note: purchase.note,
+    currency,
+    fileName: `achat-${documentNumber("ACH", purchase.id)}`,
+  };
+}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -39,10 +76,13 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 export function PurchaseDetailsModal({
   purchaseId,
   currency,
+  title,
   onClose,
 }: {
   purchaseId: number | null;
   currency: string;
+  /** Titre à la place de « Achat ACH-… » (ex : juste après l'enregistrement). */
+  title?: string;
   onClose: () => void;
 }) {
   // Le résultat est rattaché à l'id chargé : à l'ouverture d'un autre achat,
@@ -70,11 +110,18 @@ export function PurchaseDetailsModal({
 
   if (!purchaseId) return null;
 
-  const title = `Achat #${String(purchaseId).padStart(5, "0")}`;
+  const number = documentNumber("ACH", purchaseId);
   const articles = purchase ? purchase.lignes.reduce((total, line) => total + line.quantite, 0) : 0;
+  const remaining = purchase ? Number(purchase.total) - Number(purchase.montantPaye) : 0;
 
   return (
-    <Modal open onClose={onClose} title={title} description={purchase ? formatDateTime(purchase.creeLe) : undefined} size="lg">
+    <Modal
+      open
+      onClose={onClose}
+      title={title ?? `Achat ${number}`}
+      description={purchase ? `${title ? `${number} · ` : ""}${formatDateTime(purchase.creeLe)}` : undefined}
+      size="lg"
+    >
       {error && <Alert>{error}</Alert>}
       {!purchase && !error && (
         <div className="space-y-4" aria-busy="true">
@@ -138,6 +185,16 @@ export function PurchaseDetailsModal({
               <dt>Total</dt>
               <dd>{formatMoney(Number(purchase.total), currency)}</dd>
             </div>
+            <div className="flex justify-between text-slate-500">
+              <dt>Montant payé</dt>
+              <dd>{formatMoney(Number(purchase.montantPaye), currency)}</dd>
+            </div>
+            {remaining > 0 && (
+              <div className="flex justify-between font-medium text-amber-600">
+                <dt>Reste à payer</dt>
+                <dd>{formatMoney(remaining, currency)}</dd>
+              </div>
+            )}
           </dl>
 
           {purchase.note && (
@@ -147,7 +204,8 @@ export function PurchaseDetailsModal({
             </p>
           )}
 
-          <ModalFooter>
+          <ModalFooter className="sm:flex-wrap">
+            <DocumentActions document={purchaseDocument(purchase, currency)} printLabel="Imprimer le bon d'achat" />
             <Button type="button" variant="secondary" onClick={onClose}>
               Fermer
             </Button>

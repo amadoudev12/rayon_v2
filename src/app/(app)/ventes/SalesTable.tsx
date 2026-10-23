@@ -5,13 +5,15 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Badge } from "@/components/ui/Badge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/ToastProvider";
-import { formatMoney, formatDateTime } from "@/lib/format";
+import { documentNumber, formatMoney, formatDateTime } from "@/lib/format";
 import { SaleDetailsModal } from "./SaleDetailsModal";
 import { apiFetch } from "@/lib/api";
 
 type Sale = {
   id: number;
   total: number | string;
+  resteAPayer: number;
+  modePaiement: string;
   statut: string;
   creeLe: string | Date;
   lignes: { id: number; quantite: number; produit: { id: number; nom: string } }[];
@@ -19,7 +21,27 @@ type Sale = {
   vendeur: { id: number; prenom: string; nom: string };
 };
 
-export function SalesTable({ sales, canCancel, currency }: { sales: Sale[]; canCancel: boolean; currency: string }) {
+/** Statut affiché : annulée, crédit avec reste à payer, ou terminée. */
+function SaleStatusBadge({ sale, currency }: { sale: Sale; currency: string }) {
+  if (sale.statut === "CANCELLED") return <Badge dot tone="danger">Annulée</Badge>;
+  if (sale.resteAPayer > 0) return <Badge dot tone="warning">Reste {formatMoney(sale.resteAPayer, currency)}</Badge>;
+  if (sale.modePaiement === "CREDIT") return <Badge dot tone="success">Crédit réglé</Badge>;
+  return <Badge dot tone="success">Terminée</Badge>;
+}
+
+export function SalesTable({
+  sales,
+  canCancel,
+  canCollect = false,
+  canViewFinance = false,
+  currency,
+}: {
+  sales: Sale[];
+  canCancel: boolean;
+  canCollect?: boolean;
+  canViewFinance?: boolean;
+  currency: string;
+}) {
   const router = useRouter();
   const { push } = useToast();
   const [viewingId, setViewingId] = useState<number | null>(null);
@@ -38,7 +60,7 @@ export function SalesTable({ sales, canCancel, currency }: { sales: Sale[]; canC
   }
 
   if (sales.length === 0) {
-    return <EmptyState icon="receipt" title="Aucune vente" description="Vos ventes enregistrées apparaîtront ici." />;
+    return <EmptyState icon="receipt" title="Aucune vente" description="Aucune vente sur cette période." />;
   }
 
   return (
@@ -60,7 +82,7 @@ export function SalesTable({ sales, canCancel, currency }: { sales: Sale[]; canC
           <tbody>
             {sales.map((sale) => (
               <Tr key={sale.id} onClick={() => setViewingId(sale.id)}>
-                <Td className="tabular font-medium text-slate-900">#{String(sale.id).padStart(5, "0")}</Td>
+                <Td className="tabular whitespace-nowrap font-medium text-slate-900">{documentNumber("VTE", sale.id)}</Td>
                 <Td>{sale.client?.nom ?? "Client de passage"}</Td>
                 <Td>
                   {sale.vendeur.prenom} {sale.vendeur.nom}
@@ -70,9 +92,7 @@ export function SalesTable({ sales, canCancel, currency }: { sales: Sale[]; canC
                   {formatMoney(Number(sale.total), currency)}
                 </Td>
                 <Td>
-                  <Badge dot tone={sale.statut === "CANCELLED" ? "danger" : "success"}>
-                    {sale.statut === "CANCELLED" ? "Annulée" : "Terminée"}
-                  </Badge>
+                  <SaleStatusBadge sale={sale} currency={currency} />
                 </Td>
                 <Td className="whitespace-nowrap text-slate-500">{formatDateTime(sale.creeLe)}</Td>
                 {canCancel && (
@@ -102,11 +122,14 @@ export function SalesTable({ sales, canCancel, currency }: { sales: Sale[]; canC
         saleId={viewingId}
         currency={currency}
         canCancel={canCancel}
+        canCollect={canCollect}
+        canViewFinance={canViewFinance}
         onClose={() => setViewingId(null)}
         onCancel={() => {
           setCancelling(sales.find((sale) => sale.id === viewingId) ?? null);
           setViewingId(null);
         }}
+        onChanged={() => router.refresh()}
       />
 
       <ConfirmDialog
@@ -114,7 +137,7 @@ export function SalesTable({ sales, canCancel, currency }: { sales: Sale[]; canC
         onClose={() => setCancelling(null)}
         onConfirm={handleCancel}
         title="Annuler cette vente ?"
-        description="Les quantités vendues seront recréditées au stock. Cette action est définitive."
+        description="Les quantités vendues seront recréditées au stock et la vente sortira du chiffre d'affaires et des créances. Cette action est définitive."
         confirmLabel="Annuler la vente"
         danger
       />

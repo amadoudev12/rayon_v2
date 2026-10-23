@@ -9,6 +9,8 @@ import { useToast } from "@/components/ui/ToastProvider";
 import { formatMoney } from "@/lib/format";
 import { PAYMENT_METHOD_LABELS } from "@/lib/labels";
 import { apiFetch } from "@/lib/api";
+import { SaleDetailsModal } from "../SaleDetailsModal";
+import { QuoteDetailsModal } from "../../devis/QuoteDetailsModal";
 
 type Product = { id: number; nom: string; unite: string; prixVente: number; quantiteStock: number };
 type Customer = { id: number; nom: string };
@@ -16,15 +18,33 @@ type CartLine = { productId: number; name: string; unit: string; unitPrice: numb
 
 const PAYMENT_METHODS = Object.entries(PAYMENT_METHOD_LABELS).map(([value, label]) => ({ value, label }));
 
+/** Validité proposée par défaut pour un devis : 30 jours, au format AAAA-MM-JJ. */
+function defaultValidity() {
+  const date = new Date();
+  date.setDate(date.getDate() + 30);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * Panier de vente, ou de devis avec `mode="quote"` : même choix de produits,
+ * mêmes prix et même remise, mais un devis ne limite pas les quantités au
+ * stock, n'a pas de paiement et n'engage rien.
+ */
 export function SaleForm({
   products,
   customers: initialCustomers,
   currency,
+  mode = "sale",
+  onRestart,
 }: {
   products: Product[];
   customers: Customer[];
   currency: string;
+  mode?: "sale" | "quote";
+  /** « Nouvelle vente / Nouveau devis » après un enregistrement : la page repart d'un formulaire vide. */
+  onRestart?: () => void;
 }) {
+  const isQuote = mode === "quote";
   const router = useRouter();
   const { push } = useToast();
   const [search, setSearch] = useState("");
@@ -34,7 +54,12 @@ export function SaleForm({
   const [newCustomerName, setNewCustomerName] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [discount, setDiscount] = useState(0);
+  const [initialPayment, setInitialPayment] = useState("");
+  const [freeCustomerName, setFreeCustomerName] = useState("");
+  const [validUntil, setValidUntil] = useState(defaultValidity);
+  const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [createdId, setCreatedId] = useState<number | null>(null);
 
   const filteredProducts = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -44,13 +69,24 @@ export function SaleForm({
 
   const subtotal = cart.reduce((total, line) => total + line.unitPrice * line.quantity, 0);
   const total = Math.max(0, subtotal - discount);
+  const isCredit = !isQuote && paymentMethod === "CREDIT";
+  const firstPayment = Number(initialPayment) || 0;
+  const creditError = !isCredit
+    ? null
+    : !customerId
+      ? "Sélectionnez le client : il est obligatoire pour une vente à crédit."
+      : firstPayment < 0 || firstPayment > total
+        ? "Le premier versement doit être compris entre 0 et le total."
+        : null;
 
   function addToCart(product: Product) {
-    if (product.quantiteStock <= 0) return;
+    if (!isQuote && product.quantiteStock <= 0) return;
+    // Un devis n'engage pas le stock : la quantité n'est pas plafonnée.
+    const maxQuantity = isQuote ? Number.MAX_SAFE_INTEGER : product.quantiteStock;
     setCart((current) => {
       const existing = current.find((line) => line.productId === product.id);
       if (existing) {
-        if (existing.quantity >= product.quantiteStock) return current;
+        if (existing.quantity >= maxQuantity) return current;
         return current.map((line) =>
           line.productId === product.id ? { ...line, quantity: line.quantity + 1 } : line,
         );
@@ -63,7 +99,7 @@ export function SaleForm({
           unit: product.unite,
           unitPrice: product.prixVente,
           quantity: 1,
-          maxQuantity: product.quantiteStock,
+          maxQuantity,
         },
       ];
     });
@@ -102,37 +138,64 @@ export function SaleForm({
     setNewCustomerName("");
   }
 
-  async function submitSale() {
-    if (cart.length === 0) return;
+  async function submit() {
+    if (cart.length === 0 || creditError) return;
     setSubmitting(true);
     try {
-      const response = await apiFetch("/api/sales", {
+      const lignes = cart.map((line) => ({ produitId: line.productId, quantite: line.quantity }));
+      const clientId = customerId ? Number(customerId) : undefined;
+      const response = await apiFetch(isQuote ? "/api/quotes" : "/api/sales", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lignes: cart.map((line) => ({ produitId: line.productId, quantite: line.quantity })),
-          clientId: customerId ? Number(customerId) : undefined,
-          modePaiement: paymentMethod,
-          remise: discount,
-        }),
+        body: JSON.stringify(
+          isQuote
+            ? {
+                lignes,
+                clientId,
+                nomClient: clientId ? undefined : freeCustomerName.trim() || undefined,
+                remise: discount,
+                valableJusquAu: validUntil || undefined,
+                note: note.trim() || undefined,
+              }
+            : {
+                lignes,
+                clientId,
+                modePaiement: paymentMethod,
+                remise: discount,
+                montantPaye: isCredit ? firstPayment : undefined,
+              },
+        ),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        push(body?.message ?? "Impossible d'enregistrer la vente", "error");
+        push(body?.message ?? (isQuote ? "Impossible d'enregistrer le devis" : "Impossible d'enregistrer la vente"), "error");
         return;
       }
-      push("Vente enregistrée avec succès", "success");
-      router.push("/ventes");
-      router.refresh();
+      push(isQuote ? "Devis enregistré" : "Vente enregistrée avec succès", "success");
+      // Le reçu (ou le devis) s'affiche aussitôt, prêt à être imprimé.
+      setCreatedId(body.data.id);
     } finally {
       setSubmitting(false);
     }
   }
 
+  const restartLabel = isQuote ? "Nouveau devis" : "Nouvelle vente";
+  const restartButton = (
+    <Button type="button" onClick={() => onRestart?.()}>
+      <Icon name="plus" className="h-4 w-4" />
+      {restartLabel}
+    </Button>
+  );
+
   return (
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-3">
       <Card className="lg:col-span-2">
-        <CardHeader title="Produits" description="Cliquez sur un produit pour l'ajouter au panier." />
+        <CardHeader
+          title="Produits"
+          description={
+            isQuote ? "Cliquez sur un produit pour l'ajouter au devis (le stock n'est pas réservé)." : "Cliquez sur un produit pour l'ajouter au panier."
+          }
+        />
         <div className="p-4">
           <div className="relative mb-4">
             <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -155,7 +218,7 @@ export function SaleForm({
                   <button
                     key={product.id}
                     type="button"
-                    disabled={outOfStock}
+                    disabled={outOfStock && !isQuote}
                     onClick={() => addToCart(product)}
                     className="group flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-left shadow-xs transition-[border-color,background-color,box-shadow] duration-150 hover:border-brand-300 hover:bg-brand-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 active:translate-y-px disabled:cursor-not-allowed disabled:bg-slate-50 disabled:opacity-60 disabled:shadow-none"
                   >
@@ -183,10 +246,13 @@ export function SaleForm({
       </Card>
 
       <Card className="lg:sticky lg:top-20">
-        <CardHeader title="Panier" description={cart.length === 0 ? "Aucun article" : `${cart.length} article(s)`} />
+        <CardHeader
+          title={isQuote ? "Devis" : "Panier"}
+          description={cart.length === 0 ? "Aucun article" : `${cart.length} article(s)`}
+        />
         <div className="scrollbar-thin max-h-80 divide-y divide-slate-100 overflow-y-auto">
           {cart.length === 0 ? (
-            <EmptyState compact icon="cart" title="Panier vide" description="Ajoutez des produits pour commencer." />
+            <EmptyState compact icon="cart" title={isQuote ? "Devis vide" : "Panier vide"} description="Ajoutez des produits pour commencer." />
           ) : (
             cart.map((line) => (
               <div key={line.productId} className="flex animate-fade-in items-center justify-between gap-2 px-4 py-3">
@@ -211,7 +277,7 @@ export function SaleForm({
                     <input
                       type="number"
                       min={1}
-                      max={line.maxQuantity}
+                      max={isQuote ? undefined : line.maxQuantity}
                       value={line.quantity}
                       onChange={(event) => updateQuantity(line.productId, Number(event.target.value))}
                       aria-label={`Quantité de ${line.name}`}
@@ -244,7 +310,12 @@ export function SaleForm({
         <div className="space-y-4 border-t border-slate-100 p-4">
           <div>
             <label htmlFor="saleCustomer" className="mb-1.5 block text-[13px] font-medium text-slate-700">
-              Client <span className="font-normal text-slate-400">(optionnel)</span>
+              Client{" "}
+              {isCredit ? (
+                <span className="font-normal text-amber-700">(obligatoire pour un crédit)</span>
+              ) : (
+                <span className="font-normal text-slate-400">(optionnel)</span>
+              )}
             </label>
             <select
               id="saleCustomer"
@@ -252,13 +323,22 @@ export function SaleForm({
               onChange={(event) => setCustomerId(event.target.value)}
               className={selectClass}
             >
-              <option value="">Client de passage</option>
+              <option value="">{isQuote ? "Client non enregistré" : "Client de passage"}</option>
               {customers.map((customer) => (
                 <option key={customer.id} value={customer.id}>
                   {customer.nom}
                 </option>
               ))}
             </select>
+            {isQuote && !customerId && (
+              <input
+                value={freeCustomerName}
+                onChange={(event) => setFreeCustomerName(event.target.value)}
+                placeholder="Nom du client sur le devis (optionnel)"
+                aria-label="Nom du client sur le devis"
+                className={`${inputClass} mt-2 h-8 py-1 text-[13px]`}
+              />
+            )}
             <div className="mt-2 flex gap-2">
               <input
                 value={newCustomerName}
@@ -275,23 +355,38 @@ export function SaleForm({
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label htmlFor="salePayment" className="mb-1.5 block text-[13px] font-medium text-slate-700">
-                Paiement
-              </label>
-              <select
-                id="salePayment"
-                value={paymentMethod}
-                onChange={(event) => setPaymentMethod(event.target.value)}
-                className={selectClass}
-              >
-                {PAYMENT_METHODS.map((method) => (
-                  <option key={method.value} value={method.value}>
-                    {method.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {isQuote ? (
+              <div>
+                <label htmlFor="quoteValidity" className="mb-1.5 block text-[13px] font-medium text-slate-700">
+                  Valable jusqu&apos;au
+                </label>
+                <input
+                  id="quoteValidity"
+                  type="date"
+                  value={validUntil}
+                  onChange={(event) => setValidUntil(event.target.value)}
+                  className={`${inputClass} h-9`}
+                />
+              </div>
+            ) : (
+              <div>
+                <label htmlFor="salePayment" className="mb-1.5 block text-[13px] font-medium text-slate-700">
+                  Paiement
+                </label>
+                <select
+                  id="salePayment"
+                  value={paymentMethod}
+                  onChange={(event) => setPaymentMethod(event.target.value)}
+                  className={selectClass}
+                >
+                  {PAYMENT_METHODS.map((method) => (
+                    <option key={method.value} value={method.value}>
+                      {method.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div>
               <label htmlFor="saleDiscount" className="mb-1.5 block text-[13px] font-medium text-slate-700">
@@ -302,12 +397,40 @@ export function SaleForm({
                 type="number"
                 min={0}
                 placeholder="0"
-                // value={discount}
                 onChange={(event) => setDiscount(Math.max(0, Number(event.target.value)))}
                 className={`${inputClass} h-9`}
               />
             </div>
           </div>
+
+          {isCredit && (
+            <div>
+              <label htmlFor="saleFirstPayment" className="mb-1.5 block text-[13px] font-medium text-slate-700">
+                Premier versement <span className="font-normal text-slate-400">(acompte reçu maintenant)</span>
+              </label>
+              <input
+                id="saleFirstPayment"
+                type="number"
+                min={0}
+                max={total}
+                step="any"
+                inputMode="decimal"
+                placeholder="0"
+                value={initialPayment}
+                onChange={(event) => setInitialPayment(event.target.value)}
+                className={`${inputClass} tabular h-9`}
+              />
+            </div>
+          )}
+
+          {isQuote && (
+            <div>
+              <label htmlFor="quoteNote" className="mb-1.5 block text-[13px] font-medium text-slate-700">
+                Note <span className="font-normal text-slate-400">(conditions, délai de livraison…)</span>
+              </label>
+              <input id="quoteNote" value={note} onChange={(event) => setNote(event.target.value)} className={`${inputClass} h-9`} />
+            </div>
+          )}
 
           <dl className="tabular space-y-1.5 rounded-lg bg-slate-50 p-3 text-sm ring-1 ring-inset ring-slate-200/70">
             <div className="flex justify-between text-slate-500">
@@ -322,13 +445,53 @@ export function SaleForm({
               <dt className="text-sm font-medium">Total</dt>
               <dd className="text-lg font-semibold tracking-tight">{formatMoney(total, currency)}</dd>
             </div>
+            {isCredit && (
+              <>
+                <div className="flex justify-between text-slate-500">
+                  <dt>Payé maintenant</dt>
+                  <dd>{formatMoney(Math.min(firstPayment, total), currency)}</dd>
+                </div>
+                <div className="flex justify-between font-medium text-amber-700">
+                  <dt>Reste à payer (crédit)</dt>
+                  <dd>{formatMoney(Math.max(0, total - firstPayment), currency)}</dd>
+                </div>
+              </>
+            )}
           </dl>
 
-          <Button className="w-full" size="lg" disabled={cart.length === 0} loading={submitting} onClick={submitSale}>
-            Encaisser la vente
+          {creditError && cart.length > 0 && <p className="text-xs font-medium text-amber-700">{creditError}</p>}
+
+          <Button
+            className="w-full"
+            size="lg"
+            disabled={cart.length === 0 || Boolean(creditError)}
+            loading={submitting}
+            onClick={submit}
+          >
+            {isQuote ? "Enregistrer le devis" : isCredit ? "Valider la vente à crédit" : "Encaisser la vente"}
           </Button>
         </div>
       </Card>
+
+      {!isQuote && (
+        <SaleDetailsModal
+          saleId={createdId}
+          currency={currency}
+          canCancel={false}
+          title="Vente enregistrée"
+          extraActions={restartButton}
+          onClose={() => router.push("/ventes")}
+        />
+      )}
+      {isQuote && (
+        <QuoteDetailsModal
+          quoteId={createdId}
+          currency={currency}
+          title="Devis enregistré"
+          extraActions={restartButton}
+          onClose={() => router.push("/devis")}
+        />
+      )}
     </div>
   );
 }

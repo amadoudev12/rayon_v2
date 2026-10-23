@@ -16,6 +16,8 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/produits", label: "Produits", icon: "box", section: "Catalogue" },
   { href: "/stock", label: "Stock", icon: "layers", section: "Catalogue" },
   { href: "/ventes", label: "Ventes", icon: "cart", section: "Commerce" },
+  { href: "/creances", label: "Créances", icon: "coins", section: "Commerce" },
+  { href: "/devis", label: "Devis", icon: "file", section: "Commerce" },
   { href: "/achats", label: "Achats", icon: "truck", permission: "purchase:manage", section: "Commerce" },
   { href: "/clients", label: "Clients", icon: "users", section: "Commerce" },
   { href: "/fournisseurs", label: "Fournisseurs", icon: "building", permission: "supplier:manage", section: "Commerce" },

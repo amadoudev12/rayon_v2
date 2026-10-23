@@ -175,6 +175,13 @@ export default function HomePage() {
                   Se connecter
                 </CtaLink>
               </div>
+              <Link
+                href="/demo"
+                className="mt-5 inline-flex items-center gap-1.5 rounded-lg text-sm font-medium text-brand-700 transition-colors hover:text-brand-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/60 focus-visible:ring-offset-2"
+              >
+                <Icon name="play" className="h-4 w-4" />
+                Voir la démonstration animée
+              </Link>
             </div>
 
             <div className="mt-14 animate-slide-up sm:mt-16">

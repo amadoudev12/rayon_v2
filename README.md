@@ -89,6 +89,31 @@ Le navigateur n'appelle que le site : le serveur Vite transmet les requêtes `/a
 
 Les pages ont les mêmes adresses que dans la version d'origine (`/dashboard`, `/produits`, `/ventes/nouvelle`, `/admin/boutiques/:id`…). Elles sont déclarées dans `src/router.tsx`, et leurs fichiers ont gardé leur emplacement (`src/app/(app)/produits/page.tsx`, etc.).
 
+### Démonstration animée
+
+La page publique `/demo` joue une présentation animée de l'application (≈ 43 s) : ouverture, tableau de bord, nouvelle vente, stock, fonctionnalités, conclusion. Elle n'appelle pas le backend et n'utilise que des données d'exemple.
+
+| Fichier (`src/components/demo/`) | Rôle |
+| --- | --- |
+| `timeline.ts` | Le scénario : ordre et durée des scènes |
+| `scenes/*.tsx` | Une scène par fichier, avec son minutage (textes, caméra, clics) en tête de fichier |
+| `parts.tsx` | Éléments communs : fenêtre de l'application, titres animés, caméra, pointeur |
+| `motion.ts` | Fonctions d'animation (courbes, interpolation, images clés) |
+| `data.ts` | Données d'exemple affichées |
+| `DemoPlayer.tsx` | Lecteur : lecture/pause (Espace), déplacement (← →), plein écran |
+
+Tout est calculé à partir du temps écoulé, sans animation CSS ni bibliothèque : une image correspond toujours au même instant. C'est ce qui permet l'export en vidéo, image par image :
+
+```powershell
+cd frontend/demo-video
+npm install                         # une seule fois (playwright-core + ffmpeg)
+npm run export                      # out/rayon-demo.mp4, 1920 × 1080, 30 images/s
+npm run export -- --fps=60          # plus fluide, export deux fois plus long
+npm run still -- --at=12500         # out/rayon-demo-12500.png : l'image à 12,5 s, pour régler une scène
+```
+
+L'export utilise Edge ou Chrome déjà installé sur la machine (sinon `DEMO_BROWSER_PATH`). Il démarre lui-même le site : `npm run dev` n'a pas besoin de tourner.
+
 ## 3. Mobile
 
 ```powershell
