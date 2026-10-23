@@ -106,7 +106,7 @@ export function DashboardScene({ time }: SceneProps) {
                 <PanelHeader title="Stock faible" description={`${LOW_STOCK.length} produit(s) à réapprovisionner`} />
                 <ul className="divide-y divide-slate-100">
                   {LOW_STOCK.map((product, index) => (
-                    <li key={product.name} className="flex h-[54px] items-center justify-between gap-3 px-5" style={riseIn(time, 1900 + index * 130, { distance: 12 })}>
+                    <li key={product.name} className="flex h-13.5 items-center justify-between gap-3 px-5" style={riseIn(time, 1900 + index * 130, { distance: 12 })}>
                       <span>
                         <span className="block text-sm font-medium text-slate-900">{product.name}</span>
                         <span className="block text-xs text-slate-500">Seuil d&apos;alerte : {product.threshold}</span>
@@ -123,7 +123,7 @@ export function DashboardScene({ time }: SceneProps) {
                 <div className="flex h-11 items-center border-b border-slate-100 px-5 text-sm font-semibold text-slate-900">Meilleures ventes du mois</div>
                 <ul className="divide-y divide-slate-100">
                   {TOP_PRODUCTS.map((product, index) => (
-                    <li key={product.name} className="flex h-[40px] items-center justify-between gap-3 px-5 text-sm" style={riseIn(time, 2200 + index * 130, { distance: 12 })}>
+                    <li key={product.name} className="flex h-10 items-center justify-between gap-3 px-5 text-sm" style={riseIn(time, 2200 + index * 130, { distance: 12 })}>
                       <span className="font-medium text-slate-900">{product.name}</span>
                       <span className="tabular font-medium text-slate-700">{money(product.amount)}</span>
                     </li>
@@ -162,7 +162,7 @@ function TrendChart({ drawn }: { drawn: number }) {
 
   return (
     <div className="px-5 pb-4 pt-5">
-      <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="h-[282px] w-full" style={{ clipPath: `inset(-4px ${(1 - drawn) * 100}% -4px 0)` }}>
+      <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="h-70.5 w-full" style={{ clipPath: `inset(-4px ${(1 - drawn) * 100}% -4px 0)` }}>
         <defs>
           <linearGradient id="demoRevenueFill" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#4f46e5" stopOpacity={0.18} />
