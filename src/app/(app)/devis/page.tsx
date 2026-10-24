@@ -13,6 +13,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { TableContainer, Table, Thead, Th, Tr, Td } from "@/components/ui/Table";
 import { useToast } from "@/components/ui/ToastProvider";
 import { documentNumber, formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { Badge } from "@/components/ui/Badge";
 import { QuoteDetailsModal } from "./QuoteDetailsModal";
 
 type Quote = {
@@ -20,6 +21,7 @@ type Quote = {
   total: number;
   nomClient: string | null;
   valableJusquAu: string | null;
+  venteId: number | null;
   creeLe: string;
   client: { id: number; nom: string } | null;
   creePar: { prenom: string; nom: string };
@@ -35,6 +37,15 @@ type QuotesPageData = {
   totalPages: number;
   total: number;
 };
+
+/** Transformé en vente, expiré, ou en attente de la décision du client. */
+function QuoteStatusBadge({ quote }: { quote: Quote }) {
+  if (quote.venteId) return <Badge dot tone="success">Vendu · {documentNumber("VTE", quote.venteId)}</Badge>;
+  if (quote.valableJusquAu && new Date(quote.valableJusquAu) < new Date(new Date().toDateString())) {
+    return <Badge dot tone="danger">Expiré</Badge>;
+  }
+  return <Badge dot tone="neutral">En attente</Badge>;
+}
 
 export function loader({ request }: LoaderFunctionArgs) {
   return loadPage<QuotesPageData>("/devis", request);
@@ -92,6 +103,7 @@ export default function QuotesPage() {
                   <Th className="text-right">Articles</Th>
                   <Th className="text-right">Total</Th>
                   <Th>Validité</Th>
+                  <Th>Statut</Th>
                   <Th>Date</Th>
                   {canDelete && <Th className="text-right">Actions</Th>}
                 </tr>
@@ -104,6 +116,9 @@ export default function QuotesPage() {
                     <Td className="tabular text-right">{quote._count.lignes}</Td>
                     <Td className="tabular text-right font-medium text-slate-900">{formatMoney(quote.total, currency)}</Td>
                     <Td className="whitespace-nowrap text-slate-500">{quote.valableJusquAu ? formatDate(quote.valableJusquAu) : "—"}</Td>
+                    <Td>
+                      <QuoteStatusBadge quote={quote} />
+                    </Td>
                     <Td className="whitespace-nowrap text-slate-500">{formatDateTime(quote.creeLe)}</Td>
                     {canDelete && (
                       <Td className="text-right">
@@ -129,7 +144,7 @@ export default function QuotesPage() {
         <Pagination basePath="/devis" searchParams={params} page={page} totalPages={totalPages} total={total} />
       </Card>
 
-      <QuoteDetailsModal quoteId={viewingId} currency={currency} onClose={() => setViewingId(null)} />
+      <QuoteDetailsModal quoteId={viewingId} currency={currency} canConvert={canCreate} onClose={() => setViewingId(null)} />
 
       <ConfirmDialog
         open={Boolean(deleting)}

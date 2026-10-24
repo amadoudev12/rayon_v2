@@ -3,6 +3,8 @@ import { Modal, ModalFooter } from "@/components/ui/Modal";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
+import { LinkButton } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
 import { DocumentActions } from "@/components/documents/DocumentActions";
 import { documentNumber, formatDate, formatDateTime, formatMoney, formatNumber } from "@/lib/format";
 import type { CommercialDocument } from "@/lib/commercial-document";
@@ -16,6 +18,8 @@ type QuoteDetails = {
   total: string | number;
   nomClient: string | null;
   valableJusquAu: string | null;
+  /** Vente issue de ce devis, s'il a été transformé. */
+  venteId: number | null;
   note: string | null;
   creeLe: string;
   lignes: {
@@ -78,11 +82,14 @@ export function QuoteDetailsModal({
   currency,
   title,
   extraActions,
+  canConvert = false,
   onClose,
 }: {
   quoteId: number | null;
   currency: string;
   title?: string;
+  /** Affiche « Transformer en vente » (rôles autorisés à vendre). */
+  canConvert?: boolean;
   extraActions?: React.ReactNode;
   onClose: () => void;
 }) {
@@ -133,7 +140,11 @@ export function QuoteDetailsModal({
                 {expired ? "Expiré le" : "Valable jusqu'au"} {formatDate(quote.valableJusquAu)}
               </Badge>
             )}
-            <span className="text-xs text-slate-500">Aucun stock réservé, aucune vente enregistrée.</span>
+            {quote.venteId ? (
+              <Badge dot tone="success">Transformé en vente {documentNumber("VTE", quote.venteId)}</Badge>
+            ) : (
+              <span className="text-xs text-slate-500">Aucun stock réservé, aucune vente enregistrée.</span>
+            )}
           </div>
 
           <dl className="grid grid-cols-2 gap-4">
@@ -206,6 +217,12 @@ export function QuoteDetailsModal({
               phone={quote.client?.telephone}
               shareMessage={`Bonjour ${clientName}, voici notre devis ${number} d'un montant de ${formatMoney(Number(quote.total), currency)}${quote.valableJusquAu ? `, valable jusqu'au ${formatDate(quote.valableJusquAu)}` : ""}.`}
             />
+            {canConvert && !quote.venteId && (
+              <LinkButton href={`/ventes/nouvelle?devis=${quote.id}`}>
+                <Icon name="cart" className="h-4 w-4" />
+                Transformer en vente
+              </LinkButton>
+            )}
             {extraActions}
           </ModalFooter>
         </div>

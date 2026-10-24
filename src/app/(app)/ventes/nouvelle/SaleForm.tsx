@@ -6,7 +6,8 @@ import { Icon } from "@/components/ui/Icon";
 import { inputClass, selectClass } from "@/components/ui/FormField";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useToast } from "@/components/ui/ToastProvider";
-import { formatMoney } from "@/lib/format";
+import { Alert } from "@/components/ui/Alert";
+import { documentNumber, formatMoney } from "@/lib/format";
 import { PAYMENT_METHOD_LABELS } from "@/lib/labels";
 import { apiFetch } from "@/lib/api";
 import { SaleDetailsModal } from "../SaleDetailsModal";
@@ -14,9 +15,61 @@ import { QuoteDetailsModal } from "../../devis/QuoteDetailsModal";
 
 type Product = { id: number; nom: string; unite: string; prixVente: number; quantiteStock: number };
 type Customer = { id: number; nom: string };
-type CartLine = { productId: number; name: string; unit: string; unitPrice: number; quantity: number; maxQuantity: number };
+type CartLine = {
+  productId: number;
+  name: string;
+  unit: string;
+  /** Prix appliqué : celui du catalogue, ou le prix négocié avec le client. */
+  unitPrice: number;
+  catalogPrice: number;
+  quantity: number;
+  maxQuantity: number;
+};
+
+/** Devis à transformer en vente (page `/ventes/nouvelle?devis=ID`). */
+export type QuoteToConvert = {
+  id: number;
+  clientId: number | null;
+  remise: number;
+  /** Vente déjà issue de ce devis : il ne peut plus être transformé. */
+  venteId: number | null;
+  lignes: { produitId: number | null; designation: string; quantite: number; prixUnitaire: number }[];
+};
 
 const PAYMENT_METHODS = Object.entries(PAYMENT_METHOD_LABELS).map(([value, label]) => ({ value, label }));
+
+/**
+ * Panier prérempli à partir d'un devis : prix et quantités du devis. Les
+ * produits supprimés, archivés ou en stock insuffisant sont signalés.
+ */
+function cartFromQuote(quote: QuoteToConvert, products: Product[]) {
+  const cart: CartLine[] = [];
+  const warnings: string[] = [];
+  for (const line of quote.lignes) {
+    const product = products.find((candidate) => candidate.id === line.produitId);
+    if (!product) {
+      warnings.push(`« ${line.designation} » n'est plus en vente : ligne retirée.`);
+      continue;
+    }
+    if (product.quantiteStock <= 0) {
+      warnings.push(`« ${line.designation} » est en rupture de stock : ligne retirée.`);
+      continue;
+    }
+    if (product.quantiteStock < line.quantite) {
+      warnings.push(`« ${line.designation} » : ${product.quantiteStock} en stock sur ${line.quantite} prévus, quantité ajustée.`);
+    }
+    cart.push({
+      productId: product.id,
+      name: product.nom,
+      unit: product.unite,
+      unitPrice: line.prixUnitaire,
+      catalogPrice: product.prixVente,
+      quantity: Math.min(line.quantite, product.quantiteStock),
+      maxQuantity: product.quantiteStock,
+    });
+  }
+  return { cart, warnings };
+}
 
 /** Validité proposée par défaut pour un devis : 30 jours, au format AAAA-MM-JJ. */
 function defaultValidity() {
@@ -35,25 +88,31 @@ export function SaleForm({
   customers: initialCustomers,
   currency,
   mode = "sale",
+  fromQuote,
   onRestart,
 }: {
   products: Product[];
   customers: Customer[];
   currency: string;
   mode?: "sale" | "quote";
+  /** Devis transformé en vente : panier, client et remise repris du devis. */
+  fromQuote?: QuoteToConvert | null;
   /** « Nouvelle vente / Nouveau devis » après un enregistrement : la page repart d'un formulaire vide. */
   onRestart?: () => void;
 }) {
   const isQuote = mode === "quote";
+  // Un devis déjà transformé n'est pas repris : le serveur refuserait la vente.
+  const quote = !isQuote && fromQuote && !fromQuote.venteId ? fromQuote : null;
   const router = useRouter();
   const { push } = useToast();
+  const [prefill] = useState(() => (quote ? cartFromQuote(quote, products) : { cart: [], warnings: [] }));
   const [search, setSearch] = useState("");
-  const [cart, setCart] = useState<CartLine[]>([]);
+  const [cart, setCart] = useState<CartLine[]>(prefill.cart);
   const [customers, setCustomers] = useState(initialCustomers);
-  const [customerId, setCustomerId] = useState<string>("");
+  const [customerId, setCustomerId] = useState<string>(quote?.clientId ? String(quote.clientId) : "");
   const [newCustomerName, setNewCustomerName] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("CASH");
-  const [discount, setDiscount] = useState(0);
+  const [discount, setDiscount] = useState(quote?.remise ?? 0);
   const [initialPayment, setInitialPayment] = useState("");
   const [freeCustomerName, setFreeCustomerName] = useState("");
   const [validUntil, setValidUntil] = useState(defaultValidity);
@@ -98,11 +157,19 @@ export function SaleForm({
           name: product.nom,
           unit: product.unite,
           unitPrice: product.prixVente,
+          catalogPrice: product.prixVente,
           quantity: 1,
           maxQuantity,
         },
       ];
     });
+  }
+
+  /** Prix négocié avec le client pour cette ligne ; le catalogue n'est pas modifié. */
+  function updatePrice(productId: number, price: number) {
+    setCart((current) =>
+      current.map((line) => (line.productId === productId ? { ...line, unitPrice: Math.max(0, price || 0) } : line)),
+    );
   }
 
   function updateQuantity(productId: number, quantity: number) {
@@ -142,7 +209,12 @@ export function SaleForm({
     if (cart.length === 0 || creditError) return;
     setSubmitting(true);
     try {
-      const lignes = cart.map((line) => ({ produitId: line.productId, quantite: line.quantity }));
+      // Le prix n'est envoyé que s'il a été négocié : sinon le serveur applique le prix du catalogue.
+      const lignes = cart.map((line) => ({
+        produitId: line.productId,
+        quantite: line.quantity,
+        prixUnitaire: line.unitPrice !== line.catalogPrice ? line.unitPrice : undefined,
+      }));
       const clientId = customerId ? Number(customerId) : undefined;
       const response = await apiFetch(isQuote ? "/api/quotes" : "/api/sales", {
         method: "POST",
@@ -163,6 +235,7 @@ export function SaleForm({
                 modePaiement: paymentMethod,
                 remise: discount,
                 montantPaye: isCredit ? firstPayment : undefined,
+                devisId: quote?.id,
               },
         ),
       });
@@ -189,6 +262,30 @@ export function SaleForm({
 
   return (
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-3">
+      {fromQuote && !isQuote && (
+        <div className="space-y-2 lg:col-span-3">
+          {fromQuote.venteId ? (
+            <Alert tone="warning">
+              Le devis {documentNumber("DEV", fromQuote.id)} a déjà été transformé en vente ({documentNumber("VTE", fromQuote.venteId)}). Vous
+              pouvez saisir une nouvelle vente normalement.
+            </Alert>
+          ) : (
+            <Alert tone="info">
+              Vente créée à partir du devis <span className="font-medium">{documentNumber("DEV", fromQuote.id)}</span> : produits, prix,
+              client et remise sont repris. Vérifiez le panier, choisissez le paiement puis encaissez.
+            </Alert>
+          )}
+          {prefill.warnings.length > 0 && (
+            <Alert tone="warning">
+              <ul className="list-disc space-y-0.5 pl-4">
+                {prefill.warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            </Alert>
+          )}
+        </div>
+      )}
       <Card className="lg:col-span-2">
         <CardHeader
           title="Produits"
@@ -255,22 +352,42 @@ export function SaleForm({
             <EmptyState compact icon="cart" title={isQuote ? "Devis vide" : "Panier vide"} description="Ajoutez des produits pour commencer." />
           ) : (
             cart.map((line) => (
-              <div key={line.productId} className="flex animate-fade-in items-center justify-between gap-2 px-4 py-3">
-                <div className="min-w-0 flex-1">
+              <div key={line.productId} className="animate-fade-in px-4 py-3">
+                <div className="flex items-center justify-between gap-2">
                   <p className="truncate text-sm font-medium text-slate-900">{line.name}</p>
-                  <p className="tabular text-xs text-slate-500">
-                    {formatMoney(line.unitPrice, currency)} × {line.quantity} ={" "}
-                    <span className="font-medium text-slate-700">{formatMoney(line.unitPrice * line.quantity, currency)}</span>
-                  </p>
+                  <button
+                    type="button"
+                    onClick={() => removeLine(line.productId)}
+                    aria-label="Retirer"
+                    className="-mr-1.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 hover:bg-red-50 hover:text-red-600 focus-visible:ring-red-300"
+                  >
+                    <Icon name="trash" className="h-4 w-4" />
+                  </button>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="tabular mt-1.5 flex items-center gap-1.5 text-xs text-slate-500">
+                  {/* Prix unitaire : négociable pour ce client, le catalogue n'est pas modifié. */}
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    inputMode="decimal"
+                    value={line.unitPrice === 0 ? "" : line.unitPrice}
+                    placeholder="0"
+                    onChange={(event) => updatePrice(line.productId, Number(event.target.value))}
+                    aria-label={`Prix unitaire de ${line.name}`}
+                    title="Prix unitaire : modifiable pour ce client"
+                    className={`tabular h-8 w-20 rounded-lg border bg-white px-2 text-right text-[13px] shadow-xs focus:outline-none focus:ring-2 focus:ring-brand-500/30 ${
+                      line.unitPrice !== line.catalogPrice ? "border-amber-300 text-amber-800" : "border-slate-200 text-slate-900"
+                    }`}
+                  />
+                  <span aria-hidden>×</span>
                   <div className="flex items-center rounded-lg border border-slate-200 bg-white shadow-xs">
                     <button
                       type="button"
                       onClick={() => updateQuantity(line.productId, line.quantity - 1)}
                       disabled={line.quantity <= 1}
                       aria-label="Diminuer la quantité"
-                      className="flex h-8 w-7 items-center justify-center rounded-l-lg text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:text-slate-300 disabled:hover:bg-transparent"
+                      className="flex h-8 w-6 items-center justify-center rounded-l-lg text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:text-slate-300 disabled:hover:bg-transparent"
                     >
                       <Icon name="minus" className="h-3.5 w-3.5" />
                     </button>
@@ -281,27 +398,34 @@ export function SaleForm({
                       value={line.quantity}
                       onChange={(event) => updateQuantity(line.productId, Number(event.target.value))}
                       aria-label={`Quantité de ${line.name}`}
-                      className="tabular h-8 w-10 border-x border-slate-200 text-center text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-500/30"
+                      className="tabular h-8 w-9 border-x border-slate-200 text-center text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-500/30"
                     />
                     <button
                       type="button"
                       onClick={() => updateQuantity(line.productId, line.quantity + 1)}
                       disabled={line.quantity >= line.maxQuantity}
                       aria-label="Augmenter la quantité"
-                      className="flex h-8 w-7 items-center justify-center rounded-r-lg text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:text-slate-300 disabled:hover:bg-transparent"
+                      className="flex h-8 w-6 items-center justify-center rounded-r-lg text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:text-slate-300 disabled:hover:bg-transparent"
                     >
                       <Icon name="plus" className="h-3.5 w-3.5" />
                     </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => removeLine(line.productId)}
-                    aria-label="Retirer"
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 hover:bg-red-50 hover:text-red-600 focus-visible:ring-red-300"
-                  >
-                    <Icon name="trash" className="h-4 w-4" />
-                  </button>
+                  <span className="ml-auto whitespace-nowrap text-sm font-medium text-slate-900">
+                    {formatMoney(line.unitPrice * line.quantity, currency)}
+                  </span>
                 </div>
+                {line.unitPrice !== line.catalogPrice && (
+                  <p className="mt-1.5 text-[11px] text-amber-700">
+                    Prix négocié (catalogue {formatMoney(line.catalogPrice, currency)}) ·{" "}
+                    <button
+                      type="button"
+                      onClick={() => updatePrice(line.productId, line.catalogPrice)}
+                      className="font-medium underline underline-offset-2 hover:text-amber-900"
+                    >
+                      Rétablir
+                    </button>
+                  </p>
+                )}
               </div>
             ))
           )}
@@ -397,6 +521,7 @@ export function SaleForm({
                 type="number"
                 min={0}
                 placeholder="0"
+                defaultValue={discount || undefined}
                 onChange={(event) => setDiscount(Math.max(0, Number(event.target.value)))}
                 className={`${inputClass} h-9`}
               />
