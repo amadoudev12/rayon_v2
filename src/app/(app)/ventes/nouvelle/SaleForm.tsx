@@ -117,6 +117,7 @@ export function SaleForm({
   const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [initialTender, setInitialTender] = useState("CASH");
   const [discount, setDiscount] = useState(quote?.remise ?? 0);
+  const [dueDate, setDueDate] = useState("");
   const [initialPayment, setInitialPayment] = useState("");
   const [freeCustomerName, setFreeCustomerName] = useState("");
   const [validUntil, setValidUntil] = useState(defaultValidity);
@@ -245,6 +246,7 @@ export function SaleForm({
                 remise: discount,
                 montantPaye: isCredit ? firstPayment : undefined,
                 modePaiementAcompte: isCredit ? initialTender : undefined,
+                dateEcheance: isCredit && dueDate ? dueDate : undefined,
                 devisId: quote?.id,
               },
         ),
@@ -567,6 +569,10 @@ export function SaleForm({
               <select id="saleInitialTender" value={initialTender} onChange={(event) => setInitialTender(event.target.value)} className={selectClass}>
                 {PAYMENT_METHODS.filter((method) => method.value !== "CREDIT").map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}
               </select>
+              <label htmlFor="saleDueDate" className="mb-1.5 mt-3 block text-[13px] font-medium text-slate-700">
+                Échéance <span className="font-normal text-slate-400">(date promise par le client, optionnel)</span>
+              </label>
+              <input id="saleDueDate" type="date" min={new Date().toISOString().slice(0, 10)} value={dueDate} onChange={(event) => setDueDate(event.target.value)} className={`${inputClass} h-9`} />
             </div>
           )}
 

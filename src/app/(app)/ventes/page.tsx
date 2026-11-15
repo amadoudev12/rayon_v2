@@ -9,6 +9,7 @@ import { Pagination } from "@/components/ui/Pagination";
 import { LinkButton } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { SalesTable } from "./SalesTable";
+import { ExportLink } from "@/components/ui/ExportLink";
 import { SalesStats, type SalesStatsData } from "./SalesStats";
 import { PeriodSelector, periodLabel, type SalesPeriod } from "./PeriodSelector";
 
@@ -41,6 +42,7 @@ export default function SalesPage() {
         description={`Ventes et résultats de cette boutique · ${periodLabel(period)}`}
         action={
           <>
+            <ExportLink path={`/api/exports/sales?periode=${period.key}&du=${period.from}&au=${period.to}`} label="Exporter" />
             <LinkButton href="/devis/nouveau" variant="secondary">
               <Icon name="file" className="h-4 w-4" />
               Nouveau devis

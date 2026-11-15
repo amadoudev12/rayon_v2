@@ -3,6 +3,7 @@ import { useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { loadPage } from "@/lib/api";
 import { Link, useRouter, useSearchParamsRecord } from "@/lib/navigation";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { ExportLink } from "@/components/ui/ExportLink";
 import { Card } from "@/components/ui/Card";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { Pagination } from "@/components/ui/Pagination";
@@ -22,6 +23,8 @@ type Credit = {
   resteAPayer: number;
   creeLe: string;
   dernierPaiement: string | null;
+  dateEcheance: string | null;
+  enRetard: boolean;
   client: { id: number; nom: string; telephone: string | null } | null;
 };
 
@@ -44,6 +47,7 @@ export function loader({ request }: LoaderFunctionArgs) {
 
 const STATUS_FILTERS = [
   { value: "en_cours", label: "En cours" },
+  { value: "en_retard", label: "En retard" },
   { value: "reglee", label: "Réglées" },
   { value: "toutes", label: "Toutes" },
 ];
@@ -69,6 +73,7 @@ export default function CreditsPage() {
       <PageHeader
         title="Créances"
         description="Ventes à crédit de la boutique : ce que chaque client a payé et ce qu'il doit encore."
+        action={<ExportLink path="/api/exports/credits" label="Exporter les créances" />}
       />
 
       <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
@@ -144,6 +149,11 @@ export default function CreditsPage() {
                         {credit.dernierPaiement && (
                           <span className="block text-xs text-slate-400">Dernier versement : {formatDate(credit.dernierPaiement)}</span>
                         )}
+                        {credit.dateEcheance && (
+                          <span className={`block text-xs ${credit.enRetard ? "font-medium text-red-600" : "text-slate-400"}`}>
+                            Échéance : {formatDate(credit.dateEcheance)}
+                          </span>
+                        )}
                       </Td>
                       <Td className="tabular text-right">{formatMoney(credit.total, currency)}</Td>
                       <Td className="tabular text-right">{formatMoney(credit.montantPaye, currency)}</Td>
@@ -151,8 +161,8 @@ export default function CreditsPage() {
                         {formatMoney(credit.resteAPayer, currency)}
                       </Td>
                       <Td>
-                        <Badge dot tone={settled ? "success" : "warning"}>
-                          {settled ? "Réglée" : "En cours"}
+                        <Badge dot tone={settled ? "success" : credit.enRetard ? "danger" : "warning"}>
+                          {settled ? "Réglée" : credit.enRetard ? "En retard" : "En cours"}
                         </Badge>
                       </Td>
                       {canCollect && (

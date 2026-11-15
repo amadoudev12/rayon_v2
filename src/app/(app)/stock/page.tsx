@@ -3,6 +3,7 @@ import { useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { loadPage } from "@/lib/api";
 import { useSearchParamsRecord } from "@/lib/navigation";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { ExportLink } from "@/components/ui/ExportLink";
 import { Card } from "@/components/ui/Card";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { SelectFilter } from "@/components/ui/SelectFilter";
@@ -35,10 +36,14 @@ export default function StockPage() {
         title="Stock"
         description="Suivez les quantités disponibles et corrigez-les si besoin."
         action={canViewMovements && (
-          <LinkButton href="/stock/mouvements" variant="secondary">
-            <Icon name="history" className="h-4 w-4" />
-            Historique des mouvements
-          </LinkButton>
+          <>
+            {/* Même public que l'historique : responsables et gestionnaires de stock. */}
+            <ExportLink path="/api/exports/stock" label="Exporter le stock" />
+            <LinkButton href="/stock/mouvements" variant="secondary">
+              <Icon name="history" className="h-4 w-4" />
+              Historique des mouvements
+            </LinkButton>
+          </>
         )}
       />
 

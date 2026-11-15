@@ -3,6 +3,7 @@ import { useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { loadPage } from "@/lib/api";
 import { useSearchParamsRecord } from "@/lib/navigation";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { ExportLink } from "@/components/ui/ExportLink";
 import { Card } from "@/components/ui/Card";
 import { Pagination } from "@/components/ui/Pagination";
 import { PurchasesTable } from "./PurchasesTable";
@@ -32,7 +33,12 @@ export default function PurchasesPage() {
       <PageHeader
         title="Achats"
         description="Enregistrez vos approvisionnements fournisseurs."
-        action={<NewPurchaseButton products={products} suppliers={suppliers} currency={currency} />}
+        action={
+          <>
+            <ExportLink path="/api/exports/purchases?periode=month" label="Exporter le mois" />
+            <NewPurchaseButton products={products} suppliers={suppliers} currency={currency} />
+          </>
+        }
       />
 
       <Card>
