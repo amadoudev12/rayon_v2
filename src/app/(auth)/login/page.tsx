@@ -25,7 +25,8 @@ export default function LoginPage() {
     const result = await signIn("credentials", { ...data, redirect: false });
 
     if (result?.error) {
-      setServerError("Identifiant ou mot de passe incorrect.");
+      // Message du serveur : identifiants refusés ou trop de tentatives.
+      setServerError(result.error);
       return;
     }
 

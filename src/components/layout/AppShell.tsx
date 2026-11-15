@@ -192,6 +192,14 @@ export function AppShell({
                       </span>
                     </div>
                     <div className="my-1 h-px bg-slate-100" />
+                    <Link
+                      href="/changer-mot-de-passe"
+                      role="menuitem"
+                      className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900"
+                    >
+                      <Icon name="lock" className="h-4 w-4 text-slate-400" />
+                      Mot de passe et appareils
+                    </Link>
                     <button
                       type="button"
                       role="menuitem"

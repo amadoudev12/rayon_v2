@@ -5,7 +5,7 @@ import { useRouter } from "@/lib/navigation";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { SaleForm, type QuoteToConvert } from "./SaleForm";
 
-type NewSalePageData = Pick<ComponentProps<typeof SaleForm>, "products" | "customers" | "currency"> & {
+type NewSalePageData = Pick<ComponentProps<typeof SaleForm>, "products" | "customers" | "currency" | "pricing"> & {
   /** Présent avec `?devis=ID` : devis à transformer en vente. */
   quote: QuoteToConvert | null;
 };
@@ -16,7 +16,7 @@ export function loader({ request }: LoaderFunctionArgs) {
 
 export default function NewSalePage() {
   const router = useRouter();
-  const { products, customers, currency, quote } = useLoaderData<NewSalePageData>();
+  const { products, customers, currency, pricing, quote } = useLoaderData<NewSalePageData>();
   // Changer la clé repart d'un panier vide ; le rechargement met le stock à jour.
   const [formKey, setFormKey] = useState(0);
 
@@ -31,6 +31,7 @@ export default function NewSalePage() {
         products={products}
         customers={customers}
         currency={currency}
+        pricing={pricing}
         fromQuote={quote}
         onRestart={() => {
           setFormKey((value) => value + 1);

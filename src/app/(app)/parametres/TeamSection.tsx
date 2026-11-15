@@ -21,6 +21,7 @@ import { useToast } from "@/components/ui/ToastProvider";
 import { initials } from "@/lib/format";
 import { userContact } from "@/lib/auth/identifier";
 import { apiFetch } from "@/lib/api";
+import { ResetPasswordModal, type ResetTarget } from "./ResetPasswordModal";
 
 type Member = {
   id: number;
@@ -44,6 +45,7 @@ export function TeamSection({
   const { push } = useToast();
   const [open, setOpen] = useState(false);
   const [removing, setRemoving] = useState<Member | null>(null);
+  const [resetting, setResetting] = useState<ResetTarget | null>(null);
   const {
     register,
     handleSubmit,
@@ -108,6 +110,17 @@ export function TeamSection({
               {member.role !== ownerRole && member.utilisateur.id !== currentUserId && (
                 <button
                   type="button"
+                  onClick={() => setResetting({ id: member.id, name: `${member.utilisateur.prenom} ${member.utilisateur.nom}` })}
+                  aria-label="Réinitialiser le mot de passe"
+                  title="Réinitialiser le mot de passe"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 hover:bg-slate-100 hover:text-slate-700 focus-visible:ring-slate-300"
+                >
+                  <Icon name="lock" className="h-4 w-4" />
+                </button>
+              )}
+              {member.role !== ownerRole && member.utilisateur.id !== currentUserId && (
+                <button
+                  type="button"
                   onClick={() => setRemoving(member)}
                   aria-label="Retirer"
                   className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 hover:bg-red-50 hover:text-red-600 focus-visible:ring-red-300"
@@ -130,7 +143,7 @@ export function TeamSection({
       <Modal open={open} onClose={() => setOpen(false)} title="Ajouter un membre de l'équipe" size="lg">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <Alert tone="warning">
-            Aucun message n&apos;est envoyé automatiquement : communiquez ce mot de passe temporaire vous-même.
+            Aucun message n&apos;est envoyé automatiquement : communiquez ce mot de passe temporaire vous-même. Il devra être remplacé à la première connexion.
           </Alert>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <FormField label="Prénom" htmlFor="memberFirstName" error={errors.prenom?.message}>
@@ -183,12 +196,14 @@ export function TeamSection({
         </form>
       </Modal>
 
+      <ResetPasswordModal member={resetting} onClose={() => setResetting(null)} />
+
       <ConfirmDialog
         open={Boolean(removing)}
         onClose={() => setRemoving(null)}
         onConfirm={handleRemove}
         title="Retirer ce membre ?"
-        description={`${removing?.utilisateur.prenom} ${removing?.utilisateur.nom} perdra l'accès à votre organisation.`}
+        description={`${removing?.utilisateur.prenom} ${removing?.utilisateur.nom} perdra l'accès à votre organisation ; ses appareils seront déconnectés immédiatement.`}
         confirmLabel="Retirer"
         danger
       />

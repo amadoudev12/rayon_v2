@@ -6,30 +6,45 @@ import { Icon } from "@/components/ui/Icon";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/ToastProvider";
 import { SupplierFormModal, type SupplierRow } from "./SupplierFormModal";
-import { apiFetch } from "@/lib/api";
+import { sendJson } from "@/lib/mutation";
 
 type Row = SupplierRow & { _count: { achats: number } };
 
-export function SuppliersTable({ suppliers }: { suppliers: Row[] }) {
+const ICON_BUTTON =
+  "inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 hover:bg-slate-100 hover:text-slate-700 focus-visible:ring-slate-300";
+
+/**
+ * Fournisseurs. Retirer un fournisseur ayant des achats (dettes comprises)
+ * l'archive : il disparaît des listes et des nouveaux achats, son historique
+ * reste intact. Seul un fournisseur sans aucun achat est supprimé.
+ */
+export function SuppliersTable({ suppliers, canDelete = false, showArchived = false }: { suppliers: Row[]; canDelete?: boolean; showArchived?: boolean }) {
   const router = useRouter();
   const { push } = useToast();
   const [editing, setEditing] = useState<Row | null>(null);
-  const [deleting, setDeleting] = useState<Row | null>(null);
+  const [removing, setRemoving] = useState<Row | null>(null);
 
-  async function handleDelete() {
-    if (!deleting) return;
-    const response = await apiFetch(`/api/suppliers/${deleting.id}`, { method: "DELETE" });
-    const body = await response.json().catch(() => null);
-    if (!response.ok) {
-      push(body?.message ?? "Suppression impossible", "error");
-      return;
-    }
-    push("Fournisseur supprimé", "success");
+  async function handleRemove() {
+    if (!removing) return;
+    const result = await sendJson<{ mode: "deleted" | "archived" }>(`/api/suppliers/${removing.id}`, {}, { method: "DELETE" });
+    if (!result.ok) return push(result.message, "error");
+    push(result.data.mode === "archived" ? "Fournisseur archivé : son historique est conservé" : "Fournisseur supprimé", "success");
+    router.refresh();
+  }
+
+  async function handleRestore(supplier: Row) {
+    const result = await sendJson(`/api/suppliers/${supplier.id}/restore`, {});
+    if (!result.ok) return push(result.message, "error");
+    push("Fournisseur restauré", "success");
     router.refresh();
   }
 
   if (suppliers.length === 0) {
-    return <EmptyState icon="truck" title="Aucun fournisseur" description="Ajoutez vos fournisseurs pour suivre vos achats." />;
+    return showArchived ? (
+      <EmptyState icon="truck" title="Aucun fournisseur archivé" description="Les fournisseurs archivés apparaissent ici." />
+    ) : (
+      <EmptyState icon="truck" title="Aucun fournisseur" description="Ajoutez vos fournisseurs pour suivre vos achats." />
+    );
   }
 
   return (
@@ -54,22 +69,24 @@ export function SuppliersTable({ suppliers }: { suppliers: Row[] }) {
                 <Td className="tabular text-right">{supplier._count.achats}</Td>
                 <Td className="text-right">
                   <div className="flex justify-end gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setEditing(supplier)}
-                      aria-label="Modifier"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 hover:bg-slate-100 hover:text-slate-700 focus-visible:ring-slate-300"
-                    >
-                      <Icon name="edit" className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDeleting(supplier)}
-                      aria-label="Supprimer"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 hover:bg-red-50 hover:text-red-600 focus-visible:ring-red-300"
-                    >
-                      <Icon name="trash" className="h-4 w-4" />
-                    </button>
+                    {showArchived ? (
+                      canDelete && (
+                        <button type="button" onClick={() => void handleRestore(supplier)} className="rounded-md px-2 py-1 text-[13px] font-medium text-brand-700 hover:bg-brand-50">
+                          Restaurer
+                        </button>
+                      )
+                    ) : (
+                      <>
+                        <button type="button" onClick={() => setEditing(supplier)} aria-label="Modifier" className={ICON_BUTTON}>
+                          <Icon name="edit" className="h-4 w-4" />
+                        </button>
+                        {canDelete && (
+                          <button type="button" onClick={() => setRemoving(supplier)} aria-label="Retirer" className={`${ICON_BUTTON} hover:bg-red-50 hover:text-red-600`}>
+                            <Icon name="trash" className="h-4 w-4" />
+                          </button>
+                        )}
+                      </>
+                    )}
                   </div>
                 </Td>
               </Tr>
@@ -81,12 +98,16 @@ export function SuppliersTable({ suppliers }: { suppliers: Row[] }) {
       <SupplierFormModal open={Boolean(editing)} onClose={() => setEditing(null)} onSaved={() => router.refresh()} supplier={editing} />
 
       <ConfirmDialog
-        open={Boolean(deleting)}
-        onClose={() => setDeleting(null)}
-        onConfirm={handleDelete}
-        title="Supprimer ce fournisseur ?"
-        description={`"${deleting?.nom}" sera définitivement supprimé.`}
-        confirmLabel="Supprimer"
+        open={Boolean(removing)}
+        onClose={() => setRemoving(null)}
+        onConfirm={handleRemove}
+        title={removing && removing._count.achats > 0 ? "Archiver ce fournisseur ?" : "Supprimer ce fournisseur ?"}
+        description={
+          removing && removing._count.achats > 0
+            ? `« ${removing.nom} » a ${removing._count.achats} achat(s) : il sera archivé (masqué), ses achats et dettes restent rattachés à son nom.`
+            : `« ${removing?.nom} » n'a aucun achat et sera définitivement supprimé.`
+        }
+        confirmLabel={removing && removing._count.achats > 0 ? "Archiver" : "Supprimer"}
         danger
       />
     </>

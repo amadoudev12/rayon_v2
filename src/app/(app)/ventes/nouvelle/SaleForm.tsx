@@ -87,6 +87,7 @@ export function SaleForm({
   products,
   customers: initialCustomers,
   currency,
+  pricing,
   mode = "sale",
   fromQuote,
   onRestart,
@@ -94,6 +95,8 @@ export function SaleForm({
   products: Product[];
   customers: Customer[];
   currency: string;
+  /** Plafond de remise du rôle (null : sans limite), appliqué aussi par le serveur. */
+  pricing?: { maxDiscountPct: number | null; belowCostAllowed: boolean };
   mode?: "sale" | "quote";
   /** Devis transformé en vente : panier, client et remise repris du devis. */
   fromQuote?: QuoteToConvert | null;
@@ -130,6 +133,10 @@ export function SaleForm({
 
   const subtotal = cart.reduce((total, line) => total + line.unitPrice * line.quantity, 0);
   const total = Math.max(0, subtotal - discount);
+  // Remise effective (prix négociés + remise globale) en % du prix catalogue.
+  const catalogTotal = cart.reduce((sum, line) => sum + line.catalogPrice * line.quantity, 0);
+  const effectiveDiscountPct = catalogTotal > 0 ? Math.max(0, ((catalogTotal - total) / catalogTotal) * 100) : 0;
+  const overCap = !isQuote && pricing?.maxDiscountPct != null && effectiveDiscountPct > pricing.maxDiscountPct + 1e-9;
   const isCredit = !isQuote && paymentMethod === "CREDIT";
   const firstPayment = Number(initialPayment) || 0;
   const creditError = !isCredit
@@ -529,6 +536,13 @@ export function SaleForm({
                 onChange={(event) => setDiscount(Math.max(0, Number(event.target.value)))}
                 className={`${inputClass} h-9`}
               />
+              {!isQuote && pricing?.maxDiscountPct != null && (
+                <p className={`mt-1 text-xs ${overCap ? "font-medium text-red-600" : "text-slate-500"}`}>
+                  {overCap
+                    ? `Remise totale ${effectiveDiscountPct.toFixed(1)} % : au-delà de votre plafond de ${pricing.maxDiscountPct} %. Un gérant ou le propriétaire doit encaisser.`
+                    : `Remise totale ${effectiveDiscountPct.toFixed(1)} % (plafond ${pricing.maxDiscountPct} %, prix négociés compris).`}
+                </p>
+              )}
             </div>
           </div>
 
@@ -597,7 +611,7 @@ export function SaleForm({
           <Button
             className="w-full"
             size="lg"
-            disabled={cart.length === 0 || Boolean(creditError)}
+            disabled={cart.length === 0 || Boolean(creditError) || overCap}
             loading={submitting}
             onClick={submit}
           >

@@ -9,6 +9,7 @@ import LoginPage from "@/app/(auth)/login/page";
 import RegisterPage from "@/app/(auth)/register/page";
 import OnboardingPage, { loader as onboardingLoader } from "@/app/onboarding/page";
 import SuspendedPage, { loader as suspendedLoader } from "@/app/suspendu/page";
+import ChangePasswordPage from "@/app/changer-mot-de-passe/page";
 import AppLayout, { loader as appShellLoader } from "@/app/(app)/layout";
 import AppError from "@/app/(app)/error";
 import DashboardPage, { loader as dashboardLoader } from "@/app/(app)/dashboard/page";
@@ -70,6 +71,8 @@ export const router = createBrowserRouter([
       },
       { path: "onboarding", loader: onboardingLoader, element: <OnboardingPage /> },
       { path: "suspendu", loader: suspendedLoader, element: <SuspendedPage /> },
+      // Hors du cadre de l'application : accessible avec un mot de passe temporaire.
+      { path: "changer-mot-de-passe", element: <ChangePasswordPage /> },
 
       // Espace boutique.
       {
