@@ -4,17 +4,21 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Badge } from "@/components/ui/Badge";
 import { documentNumber, formatMoney, formatDateTime } from "@/lib/format";
 import { PurchaseDetailsModal } from "./PurchaseDetailsModal";
+import { useRouter } from "@/lib/navigation";
 
 type Purchase = {
   id: number;
   total: number | string;
   montantPaye: number;
+  resteAPayer: number;
+  statut: "RECEIVED" | "CANCELLED";
   creeLe: string | Date;
   fournisseur: { id: number; nom: string } | null;
   lignes: { id: number; quantite: number; produit: { id: number; nom: string } }[];
 };
 
-export function PurchasesTable({ purchases, currency }: { purchases: Purchase[]; currency: string }) {
+export function PurchasesTable({ purchases, currency, canCancel = false }: { purchases: Purchase[]; currency: string; canCancel?: boolean }) {
+  const router = useRouter();
   const [viewingId, setViewingId] = useState<number | null>(null);
 
   if (purchases.length === 0) {
@@ -43,8 +47,10 @@ export function PurchasesTable({ purchases, currency }: { purchases: Purchase[];
                 <Td className="tabular text-right">{purchase.lignes.reduce((total, line) => total + line.quantite, 0)}</Td>
                 <Td className="tabular text-right font-medium text-slate-900">{formatMoney(Number(purchase.total), currency)}</Td>
                 <Td>
-                  {Number(purchase.total) - purchase.montantPaye > 0 ? (
-                    <Badge dot tone="warning">Reste {formatMoney(Number(purchase.total) - purchase.montantPaye, currency)}</Badge>
+                  {purchase.statut === "CANCELLED" ? (
+                    <Badge dot tone="danger">Annulé</Badge>
+                  ) : purchase.resteAPayer > 0 ? (
+                    <Badge dot tone="warning">Reste {formatMoney(purchase.resteAPayer, currency)}</Badge>
                   ) : (
                     <Badge dot tone="success">Payé</Badge>
                   )}
@@ -56,7 +62,7 @@ export function PurchasesTable({ purchases, currency }: { purchases: Purchase[];
         </Table>
       </TableContainer>
 
-      <PurchaseDetailsModal purchaseId={viewingId} currency={currency} onClose={() => setViewingId(null)} />
+      <PurchaseDetailsModal purchaseId={viewingId} currency={currency} canPay canCancel={canCancel} onClose={() => setViewingId(null)} onChanged={() => router.refresh()} />
     </>
   );
 }

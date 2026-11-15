@@ -29,7 +29,8 @@ export const StockMovementType = {
   INVENTORY_ADJUSTMENT: 'INVENTORY_ADJUSTMENT',
   LOSS: 'LOSS',
   LOSS_CANCELLATION: 'LOSS_CANCELLATION',
-  SALE_RETURN: 'SALE_RETURN'
+  SALE_RETURN: 'SALE_RETURN',
+  PURCHASE_CANCELLATION: 'PURCHASE_CANCELLATION'
 } as const
 
 export type StockMovementType = (typeof StockMovementType)[keyof typeof StockMovementType]

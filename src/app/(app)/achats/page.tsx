@@ -13,6 +13,7 @@ type PurchasesPageData = {
   products: ComponentProps<typeof NewPurchaseButton>["products"];
   suppliers: ComponentProps<typeof NewPurchaseButton>["suppliers"];
   currency: string;
+  canCancel: boolean;
   page: number;
   totalPages: number;
   total: number;
@@ -24,7 +25,7 @@ export function loader({ request }: LoaderFunctionArgs) {
 
 export default function PurchasesPage() {
   const params = useSearchParamsRecord();
-  const { purchases, products, suppliers, currency, page, totalPages, total } = useLoaderData<PurchasesPageData>();
+  const { purchases, products, suppliers, currency, canCancel, page, totalPages, total } = useLoaderData<PurchasesPageData>();
 
   return (
     <div>
@@ -35,7 +36,7 @@ export default function PurchasesPage() {
       />
 
       <Card>
-        <PurchasesTable purchases={purchases} currency={currency} />
+        <PurchasesTable purchases={purchases} currency={currency} canCancel={canCancel} />
 
         <Pagination basePath="/achats" searchParams={params} page={page} totalPages={totalPages} total={total} />
       </Card>

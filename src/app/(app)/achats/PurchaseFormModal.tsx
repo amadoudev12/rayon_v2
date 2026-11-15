@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
@@ -6,6 +6,7 @@ import { inputClass, selectClass } from "@/components/ui/FormField";
 import { useToast } from "@/components/ui/ToastProvider";
 import { formatMoney } from "@/lib/format";
 import { apiFetch } from "@/lib/api";
+import { TENDER_OPTIONS, type Tender } from "@/lib/labels";
 
 type Product = { id: number; nom: string; unite: string; prixAchat: number };
 type Supplier = { id: number; nom: string };
@@ -34,6 +35,8 @@ export function PurchaseFormModal({
   const [note, setNote] = useState("");
   // Vide : l'achat est payé en totalité.
   const [paidInput, setPaidInput] = useState("");
+  const [tender, setTender] = useState<Tender>("CASH");
+  const purchaseKey = useRef<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const total = lines.reduce((sum, line) => sum + line.quantity * line.unitCost, 0);
@@ -75,11 +78,13 @@ export function PurchaseFormModal({
     try {
       const response = await apiFetch("/api/purchases", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        // Clé conservée jusqu'au succès : un nouvel essai ne double jamais le stock.
+        headers: { "Content-Type": "application/json", "Idempotency-Key": (purchaseKey.current ??= crypto.randomUUID()) },
         body: JSON.stringify({
           lignes: lines.map((line) => ({ produitId: line.productId, quantite: line.quantity, coutUnitaire: line.unitCost })),
           fournisseurId: supplierId ? Number(supplierId) : undefined,
           montantPaye: paidInput === "" ? undefined : paid,
+          modePaiement: tender,
           note: note || undefined,
         }),
       });
@@ -88,6 +93,7 @@ export function PurchaseFormModal({
         push(body?.message ?? "Impossible d'enregistrer l'achat", "error");
         return;
       }
+      purchaseKey.current = null;
       push("Achat enregistré : stock et prix d'achat mis à jour", "success");
       reset();
       onClose();
@@ -206,6 +212,21 @@ export function PurchaseFormModal({
           </label>
           <input id="purchaseNote" value={note} onChange={(event) => setNote(event.target.value)} className={inputClass} />
         </div>
+
+        {paid > 0 && (
+          <div>
+            <label htmlFor="purchaseTender" className="mb-1.5 block text-[13px] font-medium text-slate-700">
+              Mode de paiement au fournisseur
+            </label>
+            <select id="purchaseTender" value={tender} onChange={(event) => setTender(event.target.value as Tender)} className={selectClass}>
+              {TENDER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div>
           <label htmlFor="purchasePaid" className="mb-1.5 block text-[13px] font-medium text-slate-700">

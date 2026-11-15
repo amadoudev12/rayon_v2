@@ -7,6 +7,9 @@ import { DocumentActions } from "@/components/documents/DocumentActions";
 import { documentNumber, formatDateTime, formatMoney, formatNumber } from "@/lib/format";
 import type { CommercialDocument } from "@/lib/commercial-document";
 import { apiFetch } from "@/lib/api";
+import { PAYMENT_METHOD_LABELS } from "@/lib/labels";
+import type { PaymentMethod } from "@/generated/prisma/enums";
+import { CancelPurchaseModal, SupplierPaymentModal } from "./PurchaseActionsModals";
 
 /**
  * Achat détaillé renvoyé par GET /api/purchases/[id]. Les montants Decimal
@@ -14,10 +17,16 @@ import { apiFetch } from "@/lib/api";
  */
 type PurchaseDetails = {
   id: number;
+  statut: "RECEIVED" | "CANCELLED";
   total: string | number;
   montantPaye: string | number;
+  resteAPayer: string | number;
   note: string | null;
   creeLe: string;
+  annuleLe: string | null;
+  motifAnnulation: string | null;
+  annulePar: { prenom: string; nom: string } | null;
+  paiements: { id: number; montant: string | number; modePaiement: PaymentMethod | null; date: string; utilisateur: { prenom: string; nom: string } | null }[];
   lignes: {
     id: number;
     quantite: number;
@@ -32,7 +41,7 @@ type PurchaseDetails = {
 
 /** Bon d'achat : fournisseur, produits reçus, montant payé et reste à payer. */
 function purchaseDocument(purchase: PurchaseDetails, currency: string): CommercialDocument {
-  const remaining = Number(purchase.total) - Number(purchase.montantPaye);
+  const remaining = Number(purchase.resteAPayer);
   return {
     title: "Bon d'achat",
     number: documentNumber("ACH", purchase.id),
@@ -77,14 +86,24 @@ export function PurchaseDetailsModal({
   purchaseId,
   currency,
   title,
+  canPay = false,
+  canCancel = false,
   onClose,
+  onChanged,
 }: {
   purchaseId: number | null;
   currency: string;
   /** Titre à la place de « Achat ACH-… » (ex : juste après l'enregistrement). */
   title?: string;
+  /** Peut payer le fournisseur (purchase:manage). */
+  canPay?: boolean;
+  /** Peut annuler l'achat (purchase:cancel). */
+  canCancel?: boolean;
   onClose: () => void;
+  onChanged?: () => void;
 }) {
+  const [version, setVersion] = useState(0);
+  const [dialog, setDialog] = useState<"pay" | "cancel" | null>(null);
   // Le résultat est rattaché à l'id chargé : à l'ouverture d'un autre achat,
   // l'ancien résultat est ignoré sans avoir à réinitialiser l'état.
   const [result, setResult] = useState<{ id: number; purchase?: PurchaseDetails; error?: string } | null>(null);
@@ -106,17 +125,24 @@ export function PurchaseDetailsModal({
     return () => {
       cancelled = true;
     };
-  }, [purchaseId]);
+  }, [purchaseId, version]);
+
+  function refresh() {
+    setVersion((value) => value + 1);
+    onChanged?.();
+  }
 
   if (!purchaseId) return null;
 
   const number = documentNumber("ACH", purchaseId);
   const articles = purchase ? purchase.lignes.reduce((total, line) => total + line.quantite, 0) : 0;
-  const remaining = purchase ? Number(purchase.total) - Number(purchase.montantPaye) : 0;
+  const remaining = purchase ? Number(purchase.resteAPayer) : 0;
+  const cancelled = purchase?.statut === "CANCELLED";
 
   return (
+    <>
     <Modal
-      open
+      open={dialog === null}
       onClose={onClose}
       title={title ?? `Achat ${number}`}
       description={purchase ? `${title ? `${number} · ` : ""}${formatDateTime(purchase.creeLe)}` : undefined}
@@ -136,6 +162,16 @@ export function PurchaseDetailsModal({
 
       {purchase && (
         <div className="space-y-5">
+          {cancelled && (
+            <p className="rounded-lg bg-red-50/60 px-3 py-2 text-sm text-red-800 ring-1 ring-inset ring-red-200/70">
+              Achat annulé le {purchase.annuleLe ? formatDateTime(purchase.annuleLe) : "—"}
+              {purchase.annulePar && ` par ${purchase.annulePar.prenom} ${purchase.annulePar.nom}`}
+              {purchase.motifAnnulation && <span className="block text-xs">Motif : {purchase.motifAnnulation}</span>}
+              {Number(purchase.montantPaye) > 0 && (
+                <span className="block text-xs">{formatMoney(Number(purchase.montantPaye), currency)} versés au fournisseur sont à récupérer.</span>
+              )}
+            </p>
+          )}
           <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
             <Field label="Fournisseur">
               {purchase.fournisseur ? purchase.fournisseur.nom : "Aucun"}
@@ -197,6 +233,23 @@ export function PurchaseDetailsModal({
             )}
           </dl>
 
+          {purchase.paiements.length > 0 && (
+            <section>
+              <p className="mb-1.5 text-xs font-medium text-slate-500">Paiements au fournisseur</p>
+              <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200/80 text-sm">
+                {purchase.paiements.map((payment) => (
+                  <li key={payment.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                    <span className="text-slate-600">
+                      {formatDateTime(payment.date)} · {payment.modePaiement ? PAYMENT_METHOD_LABELS[payment.modePaiement] : "Mode non renseigné"}
+                      {payment.utilisateur && <span className="block text-xs text-slate-400">par {payment.utilisateur.prenom} {payment.utilisateur.nom}</span>}
+                    </span>
+                    <span className="tabular font-medium text-slate-900">{formatMoney(Number(payment.montant), currency)}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
           {purchase.note && (
             <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
               <span className="font-medium text-slate-700">Note : </span>
@@ -205,7 +258,17 @@ export function PurchaseDetailsModal({
           )}
 
           <ModalFooter className="sm:flex-wrap">
+            {canCancel && !cancelled && (
+              <Button type="button" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700 sm:mr-auto" onClick={() => setDialog("cancel")}>
+                Annuler l&apos;achat
+              </Button>
+            )}
             <DocumentActions document={purchaseDocument(purchase, currency)} printLabel="Imprimer le bon d'achat" />
+            {canPay && !cancelled && remaining > 0 && (
+              <Button type="button" onClick={() => setDialog("pay")}>
+                Payer le fournisseur
+              </Button>
+            )}
             <Button type="button" variant="secondary" onClick={onClose}>
               Fermer
             </Button>
@@ -213,5 +276,12 @@ export function PurchaseDetailsModal({
         </div>
       )}
     </Modal>
+    {dialog === "pay" && purchase && (
+      <SupplierPaymentModal purchase={{ id: purchase.id, remaining }} currency={currency} onClose={() => setDialog(null)} onSaved={refresh} />
+    )}
+    {dialog === "cancel" && purchase && (
+      <CancelPurchaseModal purchase={{ id: purchase.id, paid: Number(purchase.montantPaye) }} currency={currency} onClose={() => setDialog(null)} onCancelled={refresh} />
+    )}
+    </>
   );
 }

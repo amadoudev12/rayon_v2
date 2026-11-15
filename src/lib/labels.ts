@@ -37,6 +37,7 @@ export const MOVEMENT_LABELS: Record<string, { label: string; tone: "success" | 
   SALE: { label: "Vente", tone: "danger" },
   SALE_CANCELLATION: { label: "Vente annulée", tone: "success" },
   SALE_RETURN: { label: "Retour client", tone: "success" },
+  PURCHASE_CANCELLATION: { label: "Achat annulé", tone: "danger" },
   ADJUSTMENT: { label: "Ajustement", tone: "warning" },
   INITIAL: { label: "Stock initial", tone: "neutral" },
   INVENTORY_ADJUSTMENT: { label: "Ajustement inventaire", tone: "warning" },

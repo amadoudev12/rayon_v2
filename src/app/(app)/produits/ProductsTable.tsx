@@ -38,7 +38,7 @@ export function ProductsTable({
       push(body?.message ?? "Suppression impossible", "error");
       return;
     }
-    push("Produit supprimé", "success");
+    push(body?.data?.mode === "archived" ? "Produit archivé : son historique de ventes et de stock est conservé" : "Produit supprimé", "success");
     router.refresh();
   }
 
@@ -161,9 +161,9 @@ export function ProductsTable({
         open={Boolean(deleting)}
         onClose={() => setDeleting(null)}
         onConfirm={handleDelete}
-        title="Supprimer ce produit ?"
-        description={`"${deleting?.nom}" sera définitivement supprimé. Cette action est impossible si le produit figure déjà dans des ventes.`}
-        confirmLabel="Supprimer"
+        title="Retirer ce produit ?"
+        description={`« ${deleting?.nom} » : s'il a déjà été vendu, acheté ou mouvementé, il sera archivé (retiré du catalogue, historique conservé). Sinon il sera supprimé définitivement.`}
+        confirmLabel="Retirer"
         danger
       />
     </>
