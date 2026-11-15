@@ -4,46 +4,77 @@ import { Badge } from "@/components/ui/Badge";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
+import { Alert } from "@/components/ui/Alert";
 import { DocumentActions } from "@/components/documents/DocumentActions";
 import { documentNumber, formatDate, formatDateTime, formatMoney, formatNumber } from "@/lib/format";
-import { PAYMENT_METHOD_LABELS } from "@/lib/labels";
+import { CANCELLATION_LABELS, PAYMENT_METHOD_LABELS, SETTLEMENT_LABELS } from "@/lib/labels";
 import type { CommercialDocument } from "@/lib/commercial-document";
 import type { PaymentMethod } from "@/generated/prisma/enums";
-import { Alert } from "@/components/ui/Alert";
 import { apiFetch } from "@/lib/api";
 import { PaymentModal } from "../creances/PaymentModal";
+import { CancelSaleModal } from "./CancelSaleModal";
+import { RefundPayoutModal, type PayoutTarget } from "./RefundPayoutModal";
+import { ReturnModal } from "./ReturnModal";
 
-/**
- * Vente détaillée renvoyée par GET /api/sales/[id]. Les montants Decimal
- * arrivent en chaînes dans le JSON, d'où le `string | number`.
- */
+type Money = string | number;
+type Person = { prenom: string; nom: string } | null;
+
+/** Vente détaillée renvoyée par GET /api/sales/:id (montants Decimal en chaînes). */
 type SaleDetails = {
   id: number;
   statut: "COMPLETED" | "CANCELLED";
   modePaiement: PaymentMethod;
-  sousTotal: string | number;
-  remise: string | number;
-  total: string | number;
-  montantPaye: string | number;
-  resteAPayer: string | number;
+  sousTotal: Money;
+  remise: Money;
+  total: Money;
+  montantPaye: Money;
+  montantRetourne: Money;
+  montantARembourser: Money;
+  resteAPayer: Money;
+  remboursementEnAttente: Money;
+  etatFinancier: "SOLDEE" | "CREANCE" | "REMBOURSEMENT_EN_ATTENTE";
+  typeAnnulation: "REFUND" | "ENTRY_ERROR" | "LEGACY" | null;
+  motifAnnulation: string | null;
   note: string | null;
   creeLe: string;
   annuleLe: string | null;
+  annulePar: Person;
   lignes: {
     id: number;
     quantite: number;
-    prixUnitaire: string | number;
-    /** Coût unitaire figé au moment de la vente (coût historique). */
-    coutUnitaire: string | number;
-    sousTotal: string | number;
+    quantiteRetournee: number;
+    quantiteRestante: number;
+    prixUnitaire: Money;
+    /** Coût figé au moment de la vente : absent pour les rôles sans accès aux rapports. */
+    coutUnitaire?: Money;
+    sousTotal: Money;
     produit: { id: number; nom: string; unite: string };
   }[];
-  paiements: { id: number; montant: string | number; date: string; utilisateur: { prenom: string; nom: string } | null }[];
-  remboursements: { id: number; montant: string | number; statut: string; motif: string; versements: { id: number; montant: string | number; modePaiement: PaymentMethod; date: string; utilisateur: { prenom: string; nom: string } }[] }[];
+  paiements: { id: number; montant: Money; date: string; modePaiement: PaymentMethod | null; annule: boolean; motifAnnulation: string | null; utilisateur: Person }[];
+  remboursements: {
+    id: number;
+    montant: Money;
+    montantVerse: Money;
+    montantRestant: Money;
+    statut: string;
+    motif: string;
+    creeLe: string;
+    versements: { id: number; montant: Money; modePaiement: PaymentMethod; date: string; utilisateur: Person }[];
+  }[];
+  retours: {
+    id: number;
+    montant: Money;
+    motif: string;
+    creeLe: string;
+    creePar: Person;
+    lignes: { id: number; quantite: number; montant: Money; remiseEnStock: boolean; produit: { nom: string; unite: string } }[];
+  }[];
   client: { id: number; nom: string; telephone: string | null } | null;
   vendeur: { id: number; prenom: string; nom: string };
   boutique: { id: number; nom: string; adresse: string | null; telephone: string | null; organisation: { nom: string } };
 };
+
+const person = (value: Person) => (value ? `${value.prenom} ${value.nom}` : "—");
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -54,21 +85,17 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-/** Reçu de vente : montants payés et reste à payer, mention « Vente à crédit ». */
+/** Reçu de vente : montants payés, retours et reste à payer. */
 function saleReceipt(sale: SaleDetails, currency: string): CommercialDocument {
   const isCredit = sale.modePaiement === "CREDIT";
   const remaining = Number(sale.resteAPayer);
+  const returned = Number(sale.montantRetourne);
   return {
     title: "Reçu de vente",
     number: documentNumber("VTE", sale.id),
     date: sale.creeLe,
     withTime: true,
-    shop: {
-      name: sale.boutique.organisation.nom,
-      storeName: sale.boutique.nom,
-      address: sale.boutique.adresse,
-      phone: sale.boutique.telephone,
-    },
+    shop: { name: sale.boutique.organisation.nom, storeName: sale.boutique.nom, address: sale.boutique.adresse, phone: sale.boutique.telephone },
     party: { label: "Client", name: sale.client?.nom ?? "Client de passage", details: [sale.client?.telephone] },
     meta: [
       { label: "Paiement", value: PAYMENT_METHOD_LABELS[sale.modePaiement] },
@@ -83,22 +110,15 @@ function saleReceipt(sale: SaleDetails, currency: string): CommercialDocument {
       total: Number(line.sousTotal),
     })),
     totals: [
-      ...(Number(sale.remise) > 0
-        ? [
-            { label: "Sous-total", value: Number(sale.sousTotal) },
-            { label: "Remise", value: -Number(sale.remise) },
-          ]
-        : []),
+      ...(Number(sale.remise) > 0 ? [{ label: "Sous-total", value: Number(sale.sousTotal) }, { label: "Remise", value: -Number(sale.remise) }] : []),
       { label: "Total", value: Number(sale.total), strong: true },
+      ...(returned > 0 ? [{ label: "Retours (avoir)", value: -returned }] : []),
       { label: "Montant payé", value: Number(sale.montantPaye) },
       ...(isCredit || remaining > 0 ? [{ label: "Reste à payer", value: remaining, strong: remaining > 0 }] : []),
     ],
     history:
       isCredit && sale.paiements.length > 0
-        ? {
-            title: "Versements reçus",
-            rows: sale.paiements.map((payment) => ({ label: formatDate(payment.date), value: Number(payment.montant) })),
-          }
+        ? { title: "Versements reçus", rows: sale.paiements.filter((payment) => !payment.annule).map((payment) => ({ label: formatDate(payment.date), value: Number(payment.montant) })) }
         : undefined,
     note: sale.note,
     footer: "Merci de votre confiance.",
@@ -113,34 +133,38 @@ export function SaleDetailsModal({
   canCancel,
   canCollect = false,
   canViewFinance = false,
+  canReturn = false,
+  canRefund = false,
   title,
   extraActions,
   onClose,
-  onCancel,
   onChanged,
 }: {
   saleId: number | null;
   currency: string;
+  /** Peut annuler la vente (permission `sale:cancel`). */
   canCancel: boolean;
-  /** Peut enregistrer un paiement sur une vente à crédit. */
+  /** Peut enregistrer un paiement sur une créance. */
   canCollect?: boolean;
   /** Affiche coûts historiques et marges. */
   canViewFinance?: boolean;
+  /** Peut enregistrer un retour d'articles (`return:manage`). */
+  canReturn?: boolean;
+  /** Peut confirmer un remboursement versé (`refund:manage`). */
+  canRefund?: boolean;
   /** Titre à la place de « Vente VTE-… » (ex : juste après l'encaissement). */
   title?: string;
   extraActions?: React.ReactNode;
   onClose: () => void;
-  /** Demande l'annulation (la confirmation est gérée par le tableau). */
-  onCancel?: () => void;
-  /** Après un paiement : la page appelante recharge ses chiffres. */
+  /** Après une modification : la page appelante recharge ses chiffres. */
   onChanged?: () => void;
 }) {
   // Le résultat est rattaché à l'id chargé : à l'ouverture d'une autre vente,
   // l'ancien résultat est ignoré sans avoir à réinitialiser l'état.
   const [result, setResult] = useState<{ id: number; sale?: SaleDetails; error?: string } | null>(null);
   const [version, setVersion] = useState(0);
-  const [paying, setPaying] = useState(false);
-  const [refundBusy, setRefundBusy] = useState(false);
+  const [dialog, setDialog] = useState<"pay" | "cancel" | "return" | null>(null);
+  const [payout, setPayout] = useState<PayoutTarget | null>(null);
   const current = result?.id === saleId ? result : null;
   const sale = current?.sale ?? null;
   const error = current?.error ?? null;
@@ -163,54 +187,27 @@ export function SaleDetailsModal({
 
   if (!saleId) return null;
 
+  function refresh() {
+    setVersion((value) => value + 1);
+    onChanged?.();
+  }
+
   const number = documentNumber("VTE", saleId);
   const isCancelled = sale?.statut === "CANCELLED";
-  const isCredit = sale?.modePaiement === "CREDIT";
   const resteAPayer = sale ? Number(sale.resteAPayer) : 0;
-  const margin = sale
-    ? sale.lignes.reduce((total, line) => total + (Number(line.prixUnitaire) - Number(line.coutUnitaire)) * line.quantite, 0) -
-      Number(sale.remise)
-    : 0;
-
-  async function refundPayout(refundId: number, remaining: number) {
-    const input = window.prompt(`Montant effectivement rendu au client (solde ${formatMoney(remaining, currency)})`, String(remaining));
-    if (input === null) return;
-    const amount = Number(input);
-    if (!(amount > 0) || amount > remaining) return;
-    setRefundBusy(true);
-    try {
-      const tender = window.prompt("Mode de remise (CASH, CARD, MOBILE_MONEY ou OTHER)", "CASH") ?? "CASH";
-      const modePaiement = ["CASH", "CARD", "MOBILE_MONEY", "OTHER"].includes(tender) ? tender : "CASH";
-      const response = await apiFetch(`/api/sales/refunds/${refundId}/payouts`, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ montant: amount, modePaiement }) });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) { setResult({ id: saleId!, sale: sale ?? undefined, error: body?.message ?? "Versement impossible" }); return; }
-      setVersion((value) => value + 1);
-      onChanged?.();
-    } finally { setRefundBusy(false); }
-  }
-
-  async function requestRefund() {
-    if (!sale) return;
-    const alreadyRequested = sale.remboursements.reduce((sum, refund) => sum + Number(refund.montant), 0);
-    const available = Math.max(0, Number(sale.montantPaye) - alreadyRequested);
-    const amountText = window.prompt(`Montant à rembourser (maximum ${formatMoney(available, currency)})`);
-    if (amountText === null) return;
-    const motif = window.prompt("Motif du remboursement");
-    const amount = Number(amountText);
-    if (!motif || motif.trim().length < 3 || !(amount > 0) || amount > available) return;
-    setRefundBusy(true);
-    try {
-      const response = await apiFetch(`/api/sales/${sale.id}/refunds`, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ montant: amount, motif: motif.trim() }) });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) { setResult({ id: saleId!, sale: sale ?? undefined, error: body?.message ?? "Demande impossible" }); return; }
-      setVersion((value) => value + 1);
-      onChanged?.();
-    } finally { setRefundBusy(false); }
-  }
+  const returned = sale ? Number(sale.montantRetourne) : 0;
+  const settlement = sale ? SETTLEMENT_LABELS[sale.etatFinancier] : null;
+  const canBeReturned = sale ? !isCancelled && sale.lignes.some((line) => line.quantiteRestante > 0) : false;
+  // Marge nette des retours : CA conservé − coût figé des articles conservés.
+  const margin =
+    sale && canViewFinance
+      ? Number(sale.total) - returned - sale.lignes.reduce((sum, line) => sum + Number(line.coutUnitaire ?? 0) * line.quantiteRestante, 0)
+      : 0;
+  const refundable = sale ? Math.max(0, Number(sale.montantPaye) - Number(sale.montantARembourser)) : 0;
 
   return (
     <>
-      <Modal open={!paying} onClose={onClose} title={title ?? `Vente ${number}`} description={sale ? formatDateTime(sale.creeLe) : undefined} size="lg">
+      <Modal open={dialog === null && payout === null} onClose={onClose} title={title ?? `Vente ${number}`} description={sale ? formatDateTime(sale.creeLe) : undefined} size="lg">
         {error && <Alert>{error}</Alert>}
         {!sale && !error && (
           <div className="space-y-4" aria-busy="true">
@@ -227,25 +224,25 @@ export function SaleDetailsModal({
         {sale && (
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge dot tone={isCancelled ? "danger" : "success"}>{isCancelled ? "Annulée" : "Terminée"}</Badge>
+              <Badge dot tone={isCancelled ? "danger" : "success"}>{isCancelled ? (CANCELLATION_LABELS[sale.typeAnnulation ?? "REFUND"] ?? "Annulée") : "Terminée"}</Badge>
               <Badge tone="brand">{PAYMENT_METHOD_LABELS[sale.modePaiement]}</Badge>
-              {!isCancelled && isCredit && (
-                <Badge dot tone={resteAPayer > 0 ? "warning" : "success"}>{resteAPayer > 0 ? "Crédit en cours" : "Réglée"}</Badge>
-              )}
+              {settlement && <Badge dot tone={settlement.tone}>{settlement.label}</Badge>}
               {title && <span className="text-xs text-slate-500">{number}</span>}
-              {isCancelled && sale.annuleLe && (
-                <span className="text-xs text-slate-500">Annulée le {formatDateTime(sale.annuleLe)}</span>
-              )}
             </div>
+
+            {isCancelled && (
+              <p className="rounded-lg bg-red-50/60 px-3 py-2 text-sm text-red-800 ring-1 ring-inset ring-red-200/70">
+                Annulée le {sale.annuleLe ? formatDateTime(sale.annuleLe) : "—"} par {person(sale.annulePar)}
+                {sale.motifAnnulation && <span className="block text-xs">Motif : {sale.motifAnnulation}</span>}
+              </p>
+            )}
 
             <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
               <Field label="Client">
                 {sale.client ? sale.client.nom : "Client de passage"}
                 {sale.client?.telephone && <span className="block text-xs text-slate-500">{sale.client.telephone}</span>}
               </Field>
-              <Field label="Vendeur">
-                {sale.vendeur.prenom} {sale.vendeur.nom}
-              </Field>
+              <Field label="Vendeur">{person(sale.vendeur)}</Field>
               <Field label="Boutique">{sale.boutique.nom}</Field>
             </dl>
 
@@ -258,28 +255,19 @@ export function SaleDetailsModal({
                     <th className="px-3 py-2 text-right font-medium">Prix unitaire</th>
                     {canViewFinance && <th className="px-3 py-2 text-right font-medium">Coût unitaire</th>}
                     <th className="px-3 py-2 text-right font-medium">Sous-total</th>
-                    {canViewFinance && <th className="px-3 py-2 text-right font-medium">Marge</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {sale.lignes.map((line) => (
                     <tr key={line.id}>
                       <td className="px-3 py-2 text-slate-900">{line.produit.nom}</td>
-                      <td className="px-3 py-2 text-right text-slate-700">
+                      <td className="tabular px-3 py-2 text-right text-slate-700">
                         {formatNumber(line.quantite)} {line.produit.unite}
+                        {line.quantiteRetournee > 0 && <span className="block text-xs text-amber-700">dont {formatNumber(line.quantiteRetournee)} retourné(s)</span>}
                       </td>
                       <td className="px-3 py-2 text-right text-slate-700">{formatMoney(Number(line.prixUnitaire), currency)}</td>
-                      {canViewFinance && (
-                        <td className="px-3 py-2 text-right text-slate-500">{formatMoney(Number(line.coutUnitaire), currency)}</td>
-                      )}
-                      <td className="px-3 py-2 text-right font-medium text-slate-900">
-                        {formatMoney(Number(line.sousTotal), currency)}
-                      </td>
-                      {canViewFinance && (
-                        <td className="px-3 py-2 text-right text-slate-700">
-                          {formatMoney((Number(line.prixUnitaire) - Number(line.coutUnitaire)) * line.quantite, currency)}
-                        </td>
-                      )}
+                      {canViewFinance && <td className="px-3 py-2 text-right text-slate-500">{formatMoney(Number(line.coutUnitaire ?? 0), currency)}</td>}
+                      <td className="px-3 py-2 text-right font-medium text-slate-900">{formatMoney(Number(line.sousTotal), currency)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -287,26 +275,81 @@ export function SaleDetailsModal({
             </div>
 
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0 flex-1">
-                {sale.paiements.length > 0 && (isCredit || sale.paiements.length > 1) && (
-                  <div>
-                    <p className="mb-1.5 text-xs font-medium text-slate-500">Historique des paiements</p>
+              <div className="min-w-0 flex-1 space-y-4">
+                {sale.paiements.length > 0 && (
+                  <section>
+                    <p className="mb-1.5 text-xs font-medium text-slate-500">Paiements reçus</p>
                     <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200/80 text-sm">
                       {sale.paiements.map((payment) => (
                         <li key={payment.id} className="flex items-center justify-between gap-3 px-3 py-2">
                           <span className="text-slate-600">
-                            {formatDateTime(payment.date)}
-                            {payment.utilisateur && (
-                              <span className="block text-xs text-slate-400">
-                                par {payment.utilisateur.prenom} {payment.utilisateur.nom}
-                              </span>
-                            )}
+                            {formatDateTime(payment.date)} · {payment.modePaiement ? PAYMENT_METHOD_LABELS[payment.modePaiement] : "Mode non renseigné"}
+                            <span className="block text-xs text-slate-400">par {person(payment.utilisateur)}</span>
+                            {payment.annule && <span className="block text-xs font-medium text-red-600">Annulé : {payment.motifAnnulation}</span>}
                           </span>
-                          <span className="tabular font-medium text-slate-900">{formatMoney(Number(payment.montant), currency)}</span>
+                          <span className={`tabular font-medium ${payment.annule ? "text-slate-400 line-through" : "text-slate-900"}`}>
+                            {formatMoney(Number(payment.montant), currency)}
+                          </span>
                         </li>
                       ))}
                     </ul>
-                  </div>
+                  </section>
+                )}
+
+                {sale.retours.length > 0 && (
+                  <section>
+                    <p className="mb-1.5 text-xs font-medium text-slate-500">Retours d'articles</p>
+                    <ul className="space-y-2">
+                      {sale.retours.map((retour) => (
+                        <li key={retour.id} className="rounded-lg border border-slate-200/80 p-3 text-sm">
+                          <div className="flex justify-between gap-2">
+                            <span className="text-slate-700">{retour.motif}</span>
+                            <span className="tabular font-medium text-slate-900">−{formatMoney(Number(retour.montant), currency)}</span>
+                          </div>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            {formatDateTime(retour.creeLe)} · {person(retour.creePar)}
+                          </p>
+                          {retour.lignes.map((line) => (
+                            <p key={line.id} className="text-xs text-slate-500">
+                              {formatNumber(line.quantite)} × {line.produit.nom} — {line.remiseEnStock ? "remis en stock" : "non revendable (perte)"}
+                            </p>
+                          ))}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+
+                {sale.remboursements.length > 0 && (
+                  <section>
+                    <p className="mb-1.5 text-xs font-medium text-slate-500">Remboursements dus au client</p>
+                    <ul className="space-y-2">
+                      {sale.remboursements.map((refund) => {
+                        const remaining = Number(refund.montantRestant);
+                        return (
+                          <li key={refund.id} className="rounded-lg border border-slate-200/80 p-3 text-sm">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="text-slate-700">{refund.motif}</span>
+                              <Badge dot tone={remaining > 0 ? "warning" : "success"}>{remaining > 0 ? `${formatMoney(remaining, currency)} à rendre` : "Remboursé"}</Badge>
+                            </div>
+                            <p className="mt-1 text-xs text-slate-500">
+                              Dû {formatMoney(Number(refund.montant), currency)} · rendu {formatMoney(Number(refund.montantVerse), currency)}
+                            </p>
+                            {refund.versements.map((versement) => (
+                              <p key={versement.id} className="text-xs text-slate-500">
+                                {formatDateTime(versement.date)} · {PAYMENT_METHOD_LABELS[versement.modePaiement]} · {formatMoney(Number(versement.montant), currency)} · {person(versement.utilisateur)}
+                              </p>
+                            ))}
+                            {remaining > 0 && canRefund && (
+                              <Button type="button" size="sm" className="mt-2" onClick={() => setPayout({ refundId: refund.id, motif: refund.motif, remaining })}>
+                                Confirmer un versement
+                              </Button>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </section>
                 )}
               </div>
 
@@ -317,14 +360,20 @@ export function SaleDetailsModal({
                 </div>
                 <div className="flex justify-between text-slate-500">
                   <dt>Remise</dt>
-                  <dd>-{formatMoney(Number(sale.remise), currency)}</dd>
+                  <dd>−{formatMoney(Number(sale.remise), currency)}</dd>
                 </div>
                 <div className="flex justify-between border-t border-slate-100 pt-1 text-base font-semibold text-slate-900">
                   <dt>Total</dt>
                   <dd className={isCancelled ? "text-slate-400 line-through" : ""}>{formatMoney(Number(sale.total), currency)}</dd>
                 </div>
+                {returned > 0 && (
+                  <div className="flex justify-between text-slate-500">
+                    <dt>Retours (avoir)</dt>
+                    <dd>−{formatMoney(returned, currency)}</dd>
+                  </div>
+                )}
                 <div className="flex justify-between text-slate-500">
-                  <dt>Montant payé</dt>
+                  <dt>Payé</dt>
                   <dd>{formatMoney(Number(sale.montantPaye), currency)}</dd>
                 </div>
                 {resteAPayer > 0 && (
@@ -333,7 +382,13 @@ export function SaleDetailsModal({
                     <dd>{formatMoney(resteAPayer, currency)}</dd>
                   </div>
                 )}
-                {canViewFinance && (
+                {Number(sale.remboursementEnAttente) > 0 && (
+                  <div className="flex justify-between font-medium text-red-600">
+                    <dt>À rendre au client</dt>
+                    <dd>{formatMoney(Number(sale.remboursementEnAttente), currency)}</dd>
+                  </div>
+                )}
+                {canViewFinance && !isCancelled && (
                   <div className="flex justify-between border-t border-slate-100 pt-1 text-slate-500">
                     <dt>Marge brute</dt>
                     <dd className={margin < 0 ? "text-red-600" : "text-slate-700"}>{formatMoney(margin, currency)}</dd>
@@ -341,20 +396,6 @@ export function SaleDetailsModal({
                 )}
               </dl>
             </div>
-
-            {sale.remboursements.length > 0 && <section className="space-y-2">
-              <h3 className="text-xs font-medium text-slate-500">Remboursements et versements réels</h3>
-              {sale.remboursements.map((refund) => {
-                const paid = refund.versements.reduce((sum, payout) => sum + Number(payout.montant), 0);
-                const remaining = Math.max(0, Number(refund.montant) - paid);
-                return <div key={refund.id} className="rounded-lg border border-slate-200 p-3 text-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-2"><span>{refund.motif}</span><Badge dot tone={remaining > 0 ? "warning" : "success"}>{remaining > 0 ? "À rembourser" : "Remboursé"}</Badge></div>
-                  <p className="mt-1 text-slate-500">Demandé {formatMoney(Number(refund.montant), currency)} · déjà rendu {formatMoney(paid, currency)}</p>
-                  {refund.versements.map((payout) => <p key={payout.id} className="mt-1 text-xs text-slate-500">{formatDateTime(payout.date)} · {PAYMENT_METHOD_LABELS[payout.modePaiement]} · {formatMoney(Number(payout.montant), currency)} · {payout.utilisateur.prenom} {payout.utilisateur.nom}</p>)}
-                  {remaining > 0 && <Button type="button" size="sm" className="mt-2" disabled={refundBusy} onClick={() => void refundPayout(refund.id, remaining)}>Confirmer un versement réel</Button>}
-                </div>;
-              })}
-            </section>}
 
             {sale.note && (
               <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
@@ -364,13 +405,15 @@ export function SaleDetailsModal({
             )}
 
             <ModalFooter className="sm:flex-wrap">
-              {canCancel && !isCancelled && onCancel && (
-                <Button type="button" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700 sm:mr-auto" onClick={onCancel}>
+              {canCancel && !isCancelled && (
+                <Button type="button" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700 sm:mr-auto" onClick={() => setDialog("cancel")}>
                   Annuler la vente
                 </Button>
               )}
-              {canCancel && !isCancelled && sale.montantPaye && Number(sale.montantPaye) > sale.remboursements.reduce((sum, refund) => sum + Number(refund.montant), 0) && (
-                <Button type="button" variant="secondary" disabled={refundBusy} onClick={() => void requestRefund()}>Demander un remboursement partiel</Button>
+              {canReturn && canBeReturned && (
+                <Button type="button" variant="secondary" onClick={() => setDialog("return")}>
+                  Retour d'articles
+                </Button>
               )}
               <DocumentActions
                 document={saleReceipt(sale, currency)}
@@ -380,7 +423,7 @@ export function SaleDetailsModal({
                 shareMessage={`Bonjour ${sale.client?.nom ?? ""}, voici votre reçu ${number} : total ${formatMoney(Number(sale.total), currency)}, payé ${formatMoney(Number(sale.montantPaye), currency)}${resteAPayer > 0 ? `, reste à payer ${formatMoney(resteAPayer, currency)}` : ""}. Merci !`}
               />
               {canCollect && !isCancelled && resteAPayer > 0 && (
-                <Button type="button" onClick={() => setPaying(true)}>
+                <Button type="button" onClick={() => setDialog("pay")}>
                   <Icon name="coins" className="h-4 w-4" />
                   Enregistrer un paiement
                 </Button>
@@ -391,17 +434,32 @@ export function SaleDetailsModal({
         )}
       </Modal>
 
-      {paying && sale && (
+      {dialog === "pay" && sale && (
         <PaymentModal
-          sale={{ id: sale.id, clientName: sale.client?.nom ?? "Client", total: Number(sale.total), paid: Number(sale.montantPaye) }}
+          sale={{ id: sale.id, clientName: sale.client?.nom ?? "Client", total: Number(sale.total) - returned, paid: Number(sale.montantPaye) - Number(sale.montantARembourser), remaining: resteAPayer }}
           currency={currency}
-          onClose={() => setPaying(false)}
-          onSaved={() => {
-            setVersion((value) => value + 1);
-            onChanged?.();
-          }}
+          onClose={() => setDialog(null)}
+          onSaved={refresh}
         />
       )}
+      {dialog === "cancel" && sale && (
+        <CancelSaleModal sale={{ id: sale.id, refundable }} currency={currency} onClose={() => setDialog(null)} onCancelled={refresh} />
+      )}
+      {dialog === "return" && sale && (
+        <ReturnModal
+          sale={{
+            id: sale.id,
+            sousTotal: Number(sale.sousTotal),
+            total: Number(sale.total),
+            resteAPayer,
+            lignes: sale.lignes.map((line) => ({ ...line, prixUnitaire: Number(line.prixUnitaire) })),
+          }}
+          currency={currency}
+          onClose={() => setDialog(null)}
+          onSaved={refresh}
+        />
+      )}
+      <RefundPayoutModal target={payout} currency={currency} onClose={() => setPayout(null)} onSaved={refresh} />
     </>
   );
 }

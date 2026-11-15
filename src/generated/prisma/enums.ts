@@ -25,7 +25,11 @@ export const StockMovementType = {
   SALE: 'SALE',
   SALE_CANCELLATION: 'SALE_CANCELLATION',
   ADJUSTMENT: 'ADJUSTMENT',
-  INITIAL: 'INITIAL'
+  INITIAL: 'INITIAL',
+  INVENTORY_ADJUSTMENT: 'INVENTORY_ADJUSTMENT',
+  LOSS: 'LOSS',
+  LOSS_CANCELLATION: 'LOSS_CANCELLATION',
+  SALE_RETURN: 'SALE_RETURN'
 } as const
 
 export type StockMovementType = (typeof StockMovementType)[keyof typeof StockMovementType]
@@ -56,3 +60,21 @@ export const PurchaseStatus = {
 } as const
 
 export type PurchaseStatus = (typeof PurchaseStatus)[keyof typeof PurchaseStatus]
+
+
+export const RefundStatus = {
+  PENDING: 'PENDING',
+  PARTIALLY_REFUNDED: 'PARTIALLY_REFUNDED',
+  COMPLETED: 'COMPLETED'
+} as const
+
+export type RefundStatus = (typeof RefundStatus)[keyof typeof RefundStatus]
+
+
+export const CancellationKind = {
+  REFUND: 'REFUND',
+  ENTRY_ERROR: 'ENTRY_ERROR',
+  LEGACY: 'LEGACY'
+} as const
+
+export type CancellationKind = (typeof CancellationKind)[keyof typeof CancellationKind]

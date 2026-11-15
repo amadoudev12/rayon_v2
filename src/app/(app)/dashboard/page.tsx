@@ -32,6 +32,16 @@ type DashboardStats = {
   grossMarginRate: number | null;
   expensesTotal: number | null;
   netProfit: number | null;
+  /** Décomposition complète du mois (même calcul que la page Ventes). */
+  month: {
+    grossSales: number;
+    returns: number;
+    generalExpenses: number | null;
+    generalExpensesIncluded: boolean;
+    lossesTotal: number | null;
+    pendingRefundCount: number;
+    outstanding: number;
+  };
   activeProductsCount: number;
   lowStockCount: number;
   outOfStockCount: number;
@@ -133,7 +143,9 @@ export default function DashboardPage() {
           icon="chart"
           value={formatMoney(stats.revenue, currency)}
           hint={
-            stats.revenueChange === null ? (
+            stats.month.returns > 0 ? (
+              `Ventes ${formatMoney(stats.month.grossSales, currency)} − retours ${formatMoney(stats.month.returns, currency)}`
+            ) : stats.revenueChange === null ? (
               `Aucune vente sur la même période en ${previousMonthLabel}`
             ) : (
               <>
@@ -161,14 +173,22 @@ export default function DashboardPage() {
           icon="wallet"
           value={stats.expensesTotal === null ? "—" : formatMoney(stats.expensesTotal, currency)}
           tone={(stats.expensesTotal ?? 0) > 0 ? "danger" : "default"}
-          hint="Boutique + charges générales"
+          hint={
+            stats.month.generalExpensesIncluded || !stats.month.generalExpenses
+              ? "Dépenses de la période"
+              : `Boutique seule · charges générales à part : ${formatMoney(stats.month.generalExpenses, currency)}`
+          }
         />
         <StatCard
           label="Bénéfice net"
           icon="coins"
           value={stats.netProfit === null ? "—" : formatMoney(stats.netProfit, currency)}
           tone={(stats.netProfit ?? 0) >= 0 ? "success" : "danger"}
-          hint="Marge brute − dépenses"
+          hint={
+            stats.month.lossesTotal === null
+              ? "Marge brute − dépenses − pertes"
+              : `Marge − dépenses − pertes et écarts (${formatMoney(stats.month.lossesTotal, currency)})`
+          }
         />
       </div>
 
@@ -181,6 +201,13 @@ export default function DashboardPage() {
           hint={`${stats.todaySalesCount} vente(s)`}
         />
         <StatCard label="Net encaissé aujourd'hui" icon="coins" value={formatMoney(stats.todayNetCollected, currency)} hint={`Encaissé ${formatMoney(stats.todayCollected, currency)} · rendu ${formatMoney(stats.todayRefunded, currency)}`} />
+        <StatCard
+          label="Remboursements à verser"
+          icon="wallet"
+          value={formatMoney(stats.pendingRefund, currency)}
+          tone={stats.pendingRefund > 0 ? "warning" : "default"}
+          hint={stats.month.pendingRefundCount > 0 ? `${stats.month.pendingRefundCount} client(s) à rembourser` : "Aucun remboursement en attente"}
+        />
         <StatCard
           label="Ventes du mois"
           icon="receipt"
@@ -209,7 +236,7 @@ export default function DashboardPage() {
             description={`${formatMoney(
               stats.trend.reduce((total, point) => total + point.value, 0),
               currency,
-            )} sur la période · ventes annulées exclues`}
+            )} sur la période · CA net, ventes annulées et retours déduits`}
           />
           <div className="px-2 pb-4 pt-2">
             <RevenueTrendChart data={stats.trend} currency={currency} />

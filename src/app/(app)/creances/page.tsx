@@ -18,6 +18,7 @@ type Credit = {
   id: number;
   total: number;
   montantPaye: number;
+  montantRetourne: number;
   resteAPayer: number;
   creeLe: string;
   dernierPaiement: string | null;
@@ -28,6 +29,9 @@ type CreditsPageData = {
   credits: Credit[];
   summary: { outstanding: number; count: number };
   canCollect: boolean;
+  canReturn: boolean;
+  canRefund: boolean;
+  canViewFinance: boolean;
   currency: string;
   page: number;
   totalPages: number;
@@ -47,7 +51,7 @@ const STATUS_FILTERS = [
 export default function CreditsPage() {
   const params = useSearchParamsRecord();
   const router = useRouter();
-  const { credits, summary, canCollect, currency, page, totalPages, total } = useLoaderData<CreditsPageData>();
+  const { credits, summary, canCollect, canReturn, canRefund, canViewFinance, currency, page, totalPages, total } = useLoaderData<CreditsPageData>();
   const status = params.statut ?? "en_cours";
   const [viewingId, setViewingId] = useState<number | null>(null);
   const [paying, setPaying] = useState<PaymentTarget | null>(null);
@@ -161,8 +165,9 @@ export default function CreditsPage() {
                                 setPaying({
                                   id: credit.id,
                                   clientName: credit.client?.nom ?? "Client",
-                                  total: credit.total,
-                                  paid: credit.montantPaye,
+                                  total: credit.total - credit.montantRetourne,
+                                  paid: credit.total - credit.montantRetourne - credit.resteAPayer,
+                                  remaining: credit.resteAPayer,
                                 });
                               }}
                               className="whitespace-nowrap rounded-md px-2 py-1 text-[13px] font-medium text-brand-700 transition-colors hover:bg-brand-50"
@@ -188,6 +193,9 @@ export default function CreditsPage() {
         currency={currency}
         canCancel={false}
         canCollect={canCollect}
+        canReturn={canReturn}
+        canRefund={canRefund}
+        canViewFinance={canViewFinance}
         onClose={() => setViewingId(null)}
         onChanged={() => router.refresh()}
       />

@@ -1,17 +1,22 @@
 import { useRef, useState } from "react";
 import { Modal, ModalFooter } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { FormField, inputClass } from "@/components/ui/FormField";
+import { Alert } from "@/components/ui/Alert";
+import { FormField, inputClass, selectClass } from "@/components/ui/FormField";
 import { useToast } from "@/components/ui/ToastProvider";
 import { documentNumber, formatMoney } from "@/lib/format";
 import { apiFetch } from "@/lib/api";
-import { PAYMENT_METHOD_LABELS } from "@/lib/labels";
+import { TENDER_OPTIONS } from "@/lib/labels";
 
 export type PaymentTarget = {
   id: number;
   clientName: string;
+  /** Total dû après retours. */
   total: number;
+  /** Payé net des remboursements dus. */
   paid: number;
+  /** Solde calculé par le serveur (`resteAPayer`) : seule référence. */
+  remaining: number;
 };
 
 /**
@@ -34,10 +39,11 @@ export function PaymentModal({
   const [modePaiement, setModePaiement] = useState("CASH");
   const [submitting, setSubmitting] = useState(false);
   const paymentKey = useRef<string | null>(null);
+  const [error_, setError] = useState<string | null>(null);
 
   if (!sale) return null;
 
-  const remaining = Math.max(0, sale.total - sale.paid);
+  const remaining = sale.remaining;
   const value = Number(amount);
   const error =
     amount === "" ? null : !(value > 0) ? "Le montant doit être supérieur à 0." : value > remaining ? "Le montant dépasse le reste à payer." : null;
@@ -45,6 +51,8 @@ export function PaymentModal({
 
   function close() {
     setAmount("");
+    setError(null);
+    paymentKey.current = null;
     onClose();
   }
 
@@ -52,6 +60,7 @@ export function PaymentModal({
     event.preventDefault();
     if (!sale || error || amount === "") return;
     setSubmitting(true);
+    setError(null);
     try {
       const response = await apiFetch(`/api/sales/${sale.id}/payments`, {
         method: "POST",
@@ -60,7 +69,8 @@ export function PaymentModal({
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        push(body?.message ?? "Impossible d'enregistrer le paiement", "error");
+        // La clé est conservée : un nouvel essai ne crée pas de doublon.
+        setError(body?.message ?? "Impossible d'enregistrer le paiement");
         return;
       }
       push(newRemaining <= 0 ? "Paiement enregistré : la créance est réglée" : "Paiement enregistré", "success");
@@ -68,6 +78,8 @@ export function PaymentModal({
       paymentKey.current = null;
       onSaved();
       onClose();
+    } catch {
+      setError("Connexion au serveur impossible. Réessayez : le paiement ne sera pas enregistré deux fois.");
     } finally {
       setSubmitting(false);
     }
@@ -76,9 +88,10 @@ export function PaymentModal({
   return (
     <Modal open onClose={close} title="Enregistrer un paiement" description={`${documentNumber("VTE", sale.id)} · ${sale.clientName}`} size="sm">
       <form onSubmit={submit} className="space-y-4">
+        {error_ && <Alert>{error_}</Alert>}
         <dl className="tabular space-y-1.5 rounded-lg bg-slate-50 p-3 text-sm ring-1 ring-inset ring-slate-200/70">
           <div className="flex justify-between text-slate-500">
-            <dt>Total de la vente</dt>
+            <dt>Total dû</dt>
             <dd>{formatMoney(sale.total, currency)}</dd>
           </div>
           <div className="flex justify-between text-slate-500">
@@ -112,8 +125,12 @@ export function PaymentModal({
           </div>
         </FormField>
         <FormField label="Mode de paiement" htmlFor="paymentMethod">
-          <select id="paymentMethod" value={modePaiement} onChange={(event) => setModePaiement(event.target.value)} className={inputClass}>
-            {Object.entries(PAYMENT_METHOD_LABELS).filter(([value]) => value !== "CREDIT").map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          <select id="paymentMethod" value={modePaiement} onChange={(event) => setModePaiement(event.target.value)} className={selectClass}>
+            {TENDER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
         </FormField>
 
