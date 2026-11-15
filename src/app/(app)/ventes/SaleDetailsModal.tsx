@@ -39,6 +39,7 @@ type SaleDetails = {
     produit: { id: number; nom: string; unite: string };
   }[];
   paiements: { id: number; montant: string | number; date: string; utilisateur: { prenom: string; nom: string } | null }[];
+  remboursements: { id: number; montant: string | number; statut: string; motif: string; versements: { id: number; montant: string | number; modePaiement: PaymentMethod; date: string; utilisateur: { prenom: string; nom: string } }[] }[];
   client: { id: number; nom: string; telephone: string | null } | null;
   vendeur: { id: number; prenom: string; nom: string };
   boutique: { id: number; nom: string; adresse: string | null; telephone: string | null; organisation: { nom: string } };
@@ -139,6 +140,7 @@ export function SaleDetailsModal({
   const [result, setResult] = useState<{ id: number; sale?: SaleDetails; error?: string } | null>(null);
   const [version, setVersion] = useState(0);
   const [paying, setPaying] = useState(false);
+  const [refundBusy, setRefundBusy] = useState(false);
   const current = result?.id === saleId ? result : null;
   const sale = current?.sale ?? null;
   const error = current?.error ?? null;
@@ -169,6 +171,42 @@ export function SaleDetailsModal({
     ? sale.lignes.reduce((total, line) => total + (Number(line.prixUnitaire) - Number(line.coutUnitaire)) * line.quantite, 0) -
       Number(sale.remise)
     : 0;
+
+  async function refundPayout(refundId: number, remaining: number) {
+    const input = window.prompt(`Montant effectivement rendu au client (solde ${formatMoney(remaining, currency)})`, String(remaining));
+    if (input === null) return;
+    const amount = Number(input);
+    if (!(amount > 0) || amount > remaining) return;
+    setRefundBusy(true);
+    try {
+      const tender = window.prompt("Mode de remise (CASH, CARD, MOBILE_MONEY ou OTHER)", "CASH") ?? "CASH";
+      const modePaiement = ["CASH", "CARD", "MOBILE_MONEY", "OTHER"].includes(tender) ? tender : "CASH";
+      const response = await apiFetch(`/api/sales/refunds/${refundId}/payouts`, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ montant: amount, modePaiement }) });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) { setResult({ id: saleId!, sale: sale ?? undefined, error: body?.message ?? "Versement impossible" }); return; }
+      setVersion((value) => value + 1);
+      onChanged?.();
+    } finally { setRefundBusy(false); }
+  }
+
+  async function requestRefund() {
+    if (!sale) return;
+    const alreadyRequested = sale.remboursements.reduce((sum, refund) => sum + Number(refund.montant), 0);
+    const available = Math.max(0, Number(sale.montantPaye) - alreadyRequested);
+    const amountText = window.prompt(`Montant à rembourser (maximum ${formatMoney(available, currency)})`);
+    if (amountText === null) return;
+    const motif = window.prompt("Motif du remboursement");
+    const amount = Number(amountText);
+    if (!motif || motif.trim().length < 3 || !(amount > 0) || amount > available) return;
+    setRefundBusy(true);
+    try {
+      const response = await apiFetch(`/api/sales/${sale.id}/refunds`, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ montant: amount, motif: motif.trim() }) });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) { setResult({ id: saleId!, sale: sale ?? undefined, error: body?.message ?? "Demande impossible" }); return; }
+      setVersion((value) => value + 1);
+      onChanged?.();
+    } finally { setRefundBusy(false); }
+  }
 
   return (
     <>
@@ -304,6 +342,20 @@ export function SaleDetailsModal({
               </dl>
             </div>
 
+            {sale.remboursements.length > 0 && <section className="space-y-2">
+              <h3 className="text-xs font-medium text-slate-500">Remboursements et versements réels</h3>
+              {sale.remboursements.map((refund) => {
+                const paid = refund.versements.reduce((sum, payout) => sum + Number(payout.montant), 0);
+                const remaining = Math.max(0, Number(refund.montant) - paid);
+                return <div key={refund.id} className="rounded-lg border border-slate-200 p-3 text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2"><span>{refund.motif}</span><Badge dot tone={remaining > 0 ? "warning" : "success"}>{remaining > 0 ? "À rembourser" : "Remboursé"}</Badge></div>
+                  <p className="mt-1 text-slate-500">Demandé {formatMoney(Number(refund.montant), currency)} · déjà rendu {formatMoney(paid, currency)}</p>
+                  {refund.versements.map((payout) => <p key={payout.id} className="mt-1 text-xs text-slate-500">{formatDateTime(payout.date)} · {PAYMENT_METHOD_LABELS[payout.modePaiement]} · {formatMoney(Number(payout.montant), currency)} · {payout.utilisateur.prenom} {payout.utilisateur.nom}</p>)}
+                  {remaining > 0 && <Button type="button" size="sm" className="mt-2" disabled={refundBusy} onClick={() => void refundPayout(refund.id, remaining)}>Confirmer un versement réel</Button>}
+                </div>;
+              })}
+            </section>}
+
             {sale.note && (
               <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
                 <span className="font-medium text-slate-700">Note : </span>
@@ -316,6 +368,9 @@ export function SaleDetailsModal({
                 <Button type="button" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700 sm:mr-auto" onClick={onCancel}>
                   Annuler la vente
                 </Button>
+              )}
+              {canCancel && !isCancelled && sale.montantPaye && Number(sale.montantPaye) > sale.remboursements.reduce((sum, refund) => sum + Number(refund.montant), 0) && (
+                <Button type="button" variant="secondary" disabled={refundBusy} onClick={() => void requestRefund()}>Demander un remboursement partiel</Button>
               )}
               <DocumentActions
                 document={saleReceipt(sale, currency)}

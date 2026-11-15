@@ -163,7 +163,7 @@ export function ProductDetailsModal({
               ) : (
                 <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200/80">
                   {details.mouvementsStock.map((movement) => {
-                    const meta = MOVEMENT_LABELS[movement.type];
+                    const meta = MOVEMENT_LABELS[movement.type] ?? { label: movement.type, tone: "neutral" as const };
                     return (
                       <li key={movement.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
                         <div className="min-w-0">

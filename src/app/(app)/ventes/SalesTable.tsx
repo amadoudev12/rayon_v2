@@ -49,13 +49,15 @@ export function SalesTable({
 
   async function handleCancel() {
     if (!cancelling) return;
-    const response = await apiFetch(`/api/sales/${cancelling.id}/cancel`, { method: "POST" });
+    const motif = window.prompt("Motif d'annulation");
+    if (!motif || motif.trim().length < 3) return;
+    const response = await apiFetch(`/api/sales/${cancelling.id}/cancel`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ motif: motif.trim() }) });
     const body = await response.json().catch(() => null);
     if (!response.ok) {
       push(body?.message ?? "Annulation impossible", "error");
       return;
     }
-    push("Vente annulée, le stock a été recrédité", "success");
+    push("Vente annulée, stock recrédité et remboursement enregistré s'il y a lieu", "success");
     router.refresh();
   }
 
@@ -137,7 +139,7 @@ export function SalesTable({
         onClose={() => setCancelling(null)}
         onConfirm={handleCancel}
         title="Annuler cette vente ?"
-        description="Les quantités vendues seront recréditées au stock et la vente sortira du chiffre d'affaires et des créances. Cette action est définitive."
+        description="Les quantités seront recréditées. Si un paiement a été reçu, une demande de remboursement sera créée et devra être confirmée après remise effective des fonds au client."
         confirmLabel="Annuler la vente"
         danger
       />

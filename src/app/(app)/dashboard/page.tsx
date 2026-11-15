@@ -22,12 +22,16 @@ type DashboardStats = {
   averageBasket: number;
   todayRevenue: number;
   todaySalesCount: number;
-  costOfGoodsSold: number;
-  grossMargin: number;
+  todayCollected: number;
+  todayRefunded: number;
+  todayNetCollected: number;
+  pendingRefund: number;
+  costOfGoodsSold: number | null;
+  grossMargin: number | null;
   /** Taux de marge en % du chiffre d'affaires ; null sans ventes. */
   grossMarginRate: number | null;
-  expensesTotal: number;
-  netProfit: number;
+  expensesTotal: number | null;
+  netProfit: number | null;
   activeProductsCount: number;
   lowStockCount: number;
   outOfStockCount: number;
@@ -144,8 +148,8 @@ export default function DashboardPage() {
         <StatCard
           label="Marge brute"
           icon="trendingUp"
-          value={formatMoney(stats.grossMargin, currency)}
-          tone={stats.grossMargin < 0 ? "danger" : "default"}
+          value={stats.grossMargin === null ? "—" : formatMoney(stats.grossMargin, currency)}
+          tone={(stats.grossMargin ?? 0) < 0 ? "danger" : "default"}
           hint={
             stats.grossMarginRate === null
               ? "Chiffre d'affaires − coût d'achat des articles vendus"
@@ -155,15 +159,15 @@ export default function DashboardPage() {
         <StatCard
           label="Dépenses du mois"
           icon="wallet"
-          value={formatMoney(stats.expensesTotal, currency)}
-          tone={stats.expensesTotal > 0 ? "danger" : "default"}
+          value={stats.expensesTotal === null ? "—" : formatMoney(stats.expensesTotal, currency)}
+          tone={(stats.expensesTotal ?? 0) > 0 ? "danger" : "default"}
           hint="Boutique + charges générales"
         />
         <StatCard
           label="Bénéfice net"
           icon="coins"
-          value={formatMoney(stats.netProfit, currency)}
-          tone={stats.netProfit >= 0 ? "success" : "danger"}
+          value={stats.netProfit === null ? "—" : formatMoney(stats.netProfit, currency)}
+          tone={(stats.netProfit ?? 0) >= 0 ? "success" : "danger"}
           hint="Marge brute − dépenses"
         />
       </div>
@@ -171,11 +175,12 @@ export default function DashboardPage() {
       {/* Activité : volume de ventes et état du stock. */}
       <div className="mt-3 grid grid-cols-2 gap-3 sm:mt-4 sm:gap-4 xl:grid-cols-4">
         <StatCard
-          label="Aujourd'hui"
+          label="CA aujourd'hui"
           icon="calendar"
           value={formatMoney(stats.todayRevenue, currency)}
           hint={`${stats.todaySalesCount} vente(s)`}
         />
+        <StatCard label="Net encaissé aujourd'hui" icon="coins" value={formatMoney(stats.todayNetCollected, currency)} hint={`Encaissé ${formatMoney(stats.todayCollected, currency)} · rendu ${formatMoney(stats.todayRefunded, currency)}`} />
         <StatCard
           label="Ventes du mois"
           icon="receipt"

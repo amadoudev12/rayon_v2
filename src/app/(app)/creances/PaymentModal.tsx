@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Modal, ModalFooter } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { FormField, inputClass } from "@/components/ui/FormField";
 import { useToast } from "@/components/ui/ToastProvider";
 import { documentNumber, formatMoney } from "@/lib/format";
 import { apiFetch } from "@/lib/api";
+import { PAYMENT_METHOD_LABELS } from "@/lib/labels";
 
 export type PaymentTarget = {
   id: number;
@@ -30,7 +31,9 @@ export function PaymentModal({
 }) {
   const { push } = useToast();
   const [amount, setAmount] = useState("");
+  const [modePaiement, setModePaiement] = useState("CASH");
   const [submitting, setSubmitting] = useState(false);
+  const paymentKey = useRef<string | null>(null);
 
   if (!sale) return null;
 
@@ -52,8 +55,8 @@ export function PaymentModal({
     try {
       const response = await apiFetch(`/api/sales/${sale.id}/payments`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ montant: value }),
+        headers: { "Content-Type": "application/json", "Idempotency-Key": (paymentKey.current ??= crypto.randomUUID()) },
+        body: JSON.stringify({ montant: value, modePaiement }),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
@@ -62,6 +65,7 @@ export function PaymentModal({
       }
       push(newRemaining <= 0 ? "Paiement enregistré : la créance est réglée" : "Paiement enregistré", "success");
       setAmount("");
+      paymentKey.current = null;
       onSaved();
       onClose();
     } finally {
@@ -106,6 +110,11 @@ export function PaymentModal({
               Tout solder
             </Button>
           </div>
+        </FormField>
+        <FormField label="Mode de paiement" htmlFor="paymentMethod">
+          <select id="paymentMethod" value={modePaiement} onChange={(event) => setModePaiement(event.target.value)} className={inputClass}>
+            {Object.entries(PAYMENT_METHOD_LABELS).filter(([value]) => value !== "CREDIT").map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
         </FormField>
 
         {amount !== "" && !error && (

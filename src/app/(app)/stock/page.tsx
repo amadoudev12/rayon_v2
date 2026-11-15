@@ -14,6 +14,7 @@ import { Icon } from "@/components/ui/Icon";
 type StockPageData = {
   stocks: ComponentProps<typeof StockTable>["stocks"];
   canAdjust: boolean;
+  canViewMovements: boolean;
   currency: string;
   page: number;
   totalPages: number;
@@ -26,19 +27,19 @@ export function loader({ request }: LoaderFunctionArgs) {
 
 export default function StockPage() {
   const params = useSearchParamsRecord();
-  const { stocks, canAdjust, currency, page, totalPages, total } = useLoaderData<StockPageData>();
+  const { stocks, canAdjust, canViewMovements, currency, page, totalPages, total } = useLoaderData<StockPageData>();
 
   return (
     <div>
       <PageHeader
         title="Stock"
         description="Suivez les quantités disponibles et corrigez-les si besoin."
-        action={
+        action={canViewMovements && (
           <LinkButton href="/stock/mouvements" variant="secondary">
             <Icon name="history" className="h-4 w-4" />
             Historique des mouvements
           </LinkButton>
-        }
+        )}
       />
 
       <Card>

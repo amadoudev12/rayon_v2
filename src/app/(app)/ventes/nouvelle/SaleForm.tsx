@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "@/lib/navigation";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -112,12 +112,14 @@ export function SaleForm({
   const [customerId, setCustomerId] = useState<string>(quote?.clientId ? String(quote.clientId) : "");
   const [newCustomerName, setNewCustomerName] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("CASH");
+  const [initialTender, setInitialTender] = useState("CASH");
   const [discount, setDiscount] = useState(quote?.remise ?? 0);
   const [initialPayment, setInitialPayment] = useState("");
   const [freeCustomerName, setFreeCustomerName] = useState("");
   const [validUntil, setValidUntil] = useState(defaultValidity);
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const saleKey = useRef<string | null>(null);
   const [createdId, setCreatedId] = useState<number | null>(null);
 
   const filteredProducts = useMemo(() => {
@@ -218,7 +220,7 @@ export function SaleForm({
       const clientId = customerId ? Number(customerId) : undefined;
       const response = await apiFetch(isQuote ? "/api/quotes" : "/api/sales", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(!isQuote ? { "Idempotency-Key": (saleKey.current ??= crypto.randomUUID()) } : {}) },
         body: JSON.stringify(
           isQuote
             ? {
@@ -235,6 +237,7 @@ export function SaleForm({
                 modePaiement: paymentMethod,
                 remise: discount,
                 montantPaye: isCredit ? firstPayment : undefined,
+                modePaiementAcompte: isCredit ? initialTender : undefined,
                 devisId: quote?.id,
               },
         ),
@@ -245,6 +248,7 @@ export function SaleForm({
         return;
       }
       push(isQuote ? "Devis enregistré" : "Vente enregistrée avec succès", "success");
+      saleKey.current = null;
       // Le reçu (ou le devis) s'affiche aussitôt, prêt à être imprimé.
       setCreatedId(body.data.id);
     } finally {
@@ -545,6 +549,10 @@ export function SaleForm({
                 onChange={(event) => setInitialPayment(event.target.value)}
                 className={`${inputClass} tabular h-9`}
               />
+              <label htmlFor="saleInitialTender" className="mb-1.5 mt-3 block text-[13px] font-medium text-slate-700">Mode de l&apos;acompte reçu</label>
+              <select id="saleInitialTender" value={initialTender} onChange={(event) => setInitialTender(event.target.value)} className={selectClass}>
+                {PAYMENT_METHODS.filter((method) => method.value !== "CREDIT").map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}
+              </select>
             </div>
           )}
 

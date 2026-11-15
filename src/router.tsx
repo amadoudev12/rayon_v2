@@ -15,6 +15,10 @@ import DashboardPage, { loader as dashboardLoader } from "@/app/(app)/dashboard/
 import ProductsPage, { loader as productsLoader } from "@/app/(app)/produits/page";
 import StockPage, { loader as stockLoader } from "@/app/(app)/stock/page";
 import StockMovementsPage, { loader as stockMovementsLoader } from "@/app/(app)/stock/mouvements/page";
+import InventoriesPage from "@/app/(app)/stock/inventaires/page";
+import LossesPage from "@/app/(app)/stock/pertes/page";
+import StockControlPage from "@/app/(app)/stock/controle/page";
+import StockReportsPage from "@/app/(app)/stock/rapports/page";
 import SalesPage, { loader as salesLoader } from "@/app/(app)/ventes/page";
 import NewSalePage, { loader as newSaleLoader } from "@/app/(app)/ventes/nouvelle/page";
 import CreditsPage, { loader as creditsLoader } from "@/app/(app)/creances/page";
@@ -80,6 +84,11 @@ export const router = createBrowserRouter([
               { path: "produits", loader: productsLoader, element: <ProductsPage /> },
               { path: "stock", loader: stockLoader, element: <StockPage /> },
               { path: "stock/mouvements", loader: stockMovementsLoader, element: <StockMovementsPage /> },
+              { path: "stock/inventaires", element: <InventoriesPage /> },
+              { path: "stock/inventaires/:id", element: <InventoriesPage /> },
+              { path: "stock/pertes", element: <LossesPage /> },
+              { path: "stock/controle", element: <StockControlPage /> },
+              { path: "stock/rapports", element: <StockReportsPage /> },
               { path: "ventes", loader: salesLoader, element: <SalesPage /> },
               { path: "ventes/nouvelle", loader: newSaleLoader, element: <NewSalePage /> },
               { path: "creances", loader: creditsLoader, element: <CreditsPage /> },

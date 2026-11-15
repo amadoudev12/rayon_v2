@@ -9,13 +9,14 @@ export function OrganizationForm({
   organization,
   canEdit,
 }: {
-  organization: { nom: string; devise: string };
+  organization: { nom: string; devise: string; fuseauHoraire: string };
   canEdit: boolean;
 }) {
   const router = useRouter();
   const { push } = useToast();
   const [name, setName] = useState(organization.nom);
   const [currency, setCurrency] = useState(organization.devise);
+  const [timeZone, setTimeZone] = useState(organization.fuseauHoraire);
   const [submitting, setSubmitting] = useState(false);
 
   async function submit() {
@@ -24,7 +25,7 @@ export function OrganizationForm({
       const response = await apiFetch("/api/organization", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nom: name, devise: currency }),
+        body: JSON.stringify({ nom: name, devise: currency, fuseauHoraire: timeZone }),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
@@ -59,6 +60,9 @@ export function OrganizationForm({
             maxLength={3}
             className={`${inputClass} font-mono uppercase`}
           />
+        </FormField>
+        <FormField label="Fuseau horaire (IANA)" htmlFor="orgTimeZone">
+          <input id="orgTimeZone" value={timeZone} disabled={!canEdit} onChange={(e) => setTimeZone(e.target.value)} placeholder="Africa/Dakar" className={inputClass} />
         </FormField>
       </div>
       {canEdit && (

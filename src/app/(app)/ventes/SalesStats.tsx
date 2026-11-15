@@ -12,6 +12,9 @@ export type SalesStatsData = {
   revenue: number;
   collected: number;
   collectedOnOlderSales: number;
+  refunded: number;
+  netCollected: number;
+  pendingRefund: number;
   creditSales: number;
   creditSalesCount: number;
   outstanding: number;
@@ -38,14 +41,13 @@ export function SalesStats({ stats, currency }: { stats: SalesStatsData; currenc
       <StatCard
         label="Encaissé"
         icon="wallet"
-        value={money(stats.collected)}
+        value={money(stats.netCollected)}
         tone="success"
         hint={
-          stats.collectedOnOlderSales > 0
-            ? `dont ${money(stats.collectedOnOlderSales)} sur d'anciennes créances`
-            : "Argent effectivement reçu"
+          `Reçu ${money(stats.collected)} · rendu ${money(stats.refunded)}` + (stats.collectedOnOlderSales > 0 ? ` · dont ${money(stats.collectedOnOlderSales)} sur d'anciennes créances` : "")
         }
       />
+      <StatCard label="Remboursements à verser" icon="wallet" value={money(stats.pendingRefund)} tone={stats.pendingRefund > 0 ? "warning" : "default"} hint="Demandés, fonds pas encore remis" />
       <StatCard
         label="Ventes à crédit"
         icon="calendar"
