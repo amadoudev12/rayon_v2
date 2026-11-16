@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { sendJson } from "@/lib/mutation";
 import { useRouter } from "@/lib/navigation";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -37,6 +38,72 @@ export type QuoteToConvert = {
 };
 
 const PAYMENT_METHODS = Object.entries(PAYMENT_METHOD_LABELS).map(([value, label]) => ({ value, label }));
+
+/**
+ * Vente en cours de saisie, sous la forme attendue par le serveur : sert au
+ * brouillon automatique (navigateur) et aux ventes en attente (serveur).
+ */
+export type SaleDraft = {
+  lignes: { produitId: number; quantite: number; prixUnitaire?: number }[];
+  clientId?: number | null;
+  modePaiement: string;
+  remise: number;
+  montantPaye?: number | null;
+  modePaiementAcompte?: string | null;
+  dateEcheance?: string | null;
+  note?: string | null;
+};
+
+const DRAFT_KEY = (storeId: number) => `rayon:vente-en-cours:${storeId}`;
+
+/** Brouillon enregistré dans ce navigateur pour cette boutique (null si absent ou illisible). */
+export function readStoredDraft(storeId: number): SaleDraft | null {
+  try {
+    const raw = window.localStorage.getItem(DRAFT_KEY(storeId));
+    const draft = raw ? (JSON.parse(raw) as SaleDraft) : null;
+    return draft && Array.isArray(draft.lignes) && draft.lignes.length > 0 ? draft : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearStoredDraft(storeId: number) {
+  try {
+    window.localStorage.removeItem(DRAFT_KEY(storeId));
+  } catch {
+    /* stockage indisponible : rien à effacer */
+  }
+}
+
+function storeDraft(storeId: number, draft: SaleDraft | null) {
+  try {
+    if (draft && draft.lignes.length > 0) window.localStorage.setItem(DRAFT_KEY(storeId), JSON.stringify(draft));
+    else window.localStorage.removeItem(DRAFT_KEY(storeId));
+  } catch {
+    /* stockage indisponible (navigation privée) : le brouillon n'est simplement pas conservé */
+  }
+}
+
+/**
+ * Panier reconstruit à partir de lignes (brouillon ou vente reprise) avec le
+ * catalogue À JOUR : produits retirés ou épuisés signalés, quantités bornées
+ * au stock actuel. Le serveur revérifie de toute façon à l'encaissement.
+ */
+function cartFromLines(lines: SaleDraft["lignes"], products: Product[]) {
+  return cartFromQuote(
+    {
+      id: 0,
+      clientId: null,
+      remise: 0,
+      venteId: null,
+      lignes: lines.map((line) => {
+        const product = products.find((candidate) => candidate.id === line.produitId);
+        return { produitId: line.produitId, designation: product?.nom ?? `Produit n° ${line.produitId}`, quantite: line.quantite, prixUnitaire: line.prixUnitaire ?? product?.prixVente ?? 0 };
+      }),
+    },
+    products,
+  );
+}
 
 /**
  * Panier prérempli à partir d'un devis : prix et quantités du devis. Les
@@ -91,6 +158,10 @@ export function SaleForm({
   mode = "sale",
   fromQuote,
   onRestart,
+  storeId,
+  initialDraft,
+  onDraftChange,
+  onHeld,
 }: {
   products: Product[];
   customers: Customer[];
@@ -102,26 +173,43 @@ export function SaleForm({
   fromQuote?: QuoteToConvert | null;
   /** « Nouvelle vente / Nouveau devis » après un enregistrement : la page repart d'un formulaire vide. */
   onRestart?: () => void;
+  /** Boutique de la vente : le brouillon automatique est propre à chaque boutique. */
+  storeId?: number;
+  /** Vente reprise (mise en attente) : prioritaire sur le brouillon du navigateur. */
+  initialDraft?: SaleDraft | null;
+  /** Vente en cours, transmise à la page (pour la mettre en attente avant d'en reprendre une autre). */
+  onDraftChange?: (draft: SaleDraft | null) => void;
+  /** Après une mise en attente réussie : la page repart d'un panier vide. */
+  onHeld?: () => void;
 }) {
   const isQuote = mode === "quote";
   // Un devis déjà transformé n'est pas repris : le serveur refuserait la vente.
   const quote = !isQuote && fromQuote && !fromQuote.venteId ? fromQuote : null;
   const router = useRouter();
   const { push } = useToast();
-  const [prefill] = useState(() => (quote ? cartFromQuote(quote, products) : { cart: [], warnings: [] }));
+  // Point de départ : devis à transformer, sinon vente reprise, sinon brouillon de ce navigateur.
+  const [start] = useState<SaleDraft | null>(() =>
+    isQuote || quote ? null : (initialDraft ?? (storeId ? readStoredDraft(storeId) : null)),
+  );
+  const [prefill] = useState(() =>
+    quote ? cartFromQuote(quote, products) : start ? cartFromLines(start.lignes, products) : { cart: [], warnings: [] },
+  );
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartLine[]>(prefill.cart);
   const [customers, setCustomers] = useState(initialCustomers);
-  const [customerId, setCustomerId] = useState<string>(quote?.clientId ? String(quote.clientId) : "");
+  const [customerId, setCustomerId] = useState<string>(
+    quote?.clientId ? String(quote.clientId) : start?.clientId && initialCustomers.some((customer) => customer.id === start.clientId) ? String(start.clientId) : "",
+  );
   const [newCustomerName, setNewCustomerName] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("CASH");
-  const [initialTender, setInitialTender] = useState("CASH");
-  const [discount, setDiscount] = useState(quote?.remise ?? 0);
-  const [dueDate, setDueDate] = useState("");
-  const [initialPayment, setInitialPayment] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState(start?.modePaiement ?? "CASH");
+  const [initialTender, setInitialTender] = useState(start?.modePaiementAcompte ?? "CASH");
+  const [discount, setDiscount] = useState(quote?.remise ?? start?.remise ?? 0);
+  const [dueDate, setDueDate] = useState(start?.dateEcheance ?? "");
+  const [initialPayment, setInitialPayment] = useState(start?.montantPaye ? String(start.montantPaye) : "");
+  const [holding, setHolding] = useState(false);
   const [freeCustomerName, setFreeCustomerName] = useState("");
   const [validUntil, setValidUntil] = useState(defaultValidity);
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(start?.note ?? "");
   const [submitting, setSubmitting] = useState(false);
   const saleKey = useRef<string | null>(null);
   const [createdId, setCreatedId] = useState<number | null>(null);
@@ -147,6 +235,48 @@ export function SaleForm({
       : firstPayment < 0 || firstPayment > total
         ? "Le premier versement doit être compris entre 0 et le total."
         : null;
+
+  // Vente en cours sous la forme du serveur (prix envoyé seulement s'il a été négocié).
+  const draft: SaleDraft | null =
+    isQuote || cart.length === 0
+      ? null
+      : {
+          lignes: cart.map((line) => ({
+            produitId: line.productId,
+            quantite: line.quantity,
+            ...(line.unitPrice !== line.catalogPrice ? { prixUnitaire: line.unitPrice } : {}),
+          })),
+          clientId: customerId ? Number(customerId) : null,
+          modePaiement: paymentMethod,
+          remise: discount,
+          montantPaye: isCredit ? firstPayment : null,
+          modePaiementAcompte: isCredit ? initialTender : null,
+          dateEcheance: isCredit && dueDate ? dueDate : null,
+          note: note.trim() || null,
+        };
+  const draftJson = JSON.stringify(draft);
+
+  // Brouillon automatique : quitter l'écran (ajouter un client, consulter un
+  // stock…) puis revenir retrouve la vente telle qu'elle était.
+  useEffect(() => {
+    if (isQuote || createdId || !storeId) return;
+    storeDraft(storeId, draftJson === "null" ? null : (JSON.parse(draftJson) as SaleDraft));
+    onDraftChange?.(draftJson === "null" ? null : (JSON.parse(draftJson) as SaleDraft));
+  }, [draftJson, isQuote, createdId, storeId, onDraftChange]);
+
+  async function holdCurrentSale() {
+    if (!draft) return;
+    setHolding(true);
+    const result = await sendJson<{ libelle: string }>(`/api/held-sales${storeId ? `?storeId=${storeId}` : ""}`, { panier: draft });
+    setHolding(false);
+    if (!result.ok) {
+      push(result.message, "error");
+      return;
+    }
+    if (storeId) clearStoredDraft(storeId);
+    push(`Vente « ${result.data.libelle} » mise en attente`, "success");
+    onHeld?.();
+  }
 
   function addToCart(product: Product) {
     if (!isQuote && product.quantiteStock <= 0) return;
@@ -258,6 +388,7 @@ export function SaleForm({
       }
       push(isQuote ? "Devis enregistré" : "Vente enregistrée avec succès", "success");
       saleKey.current = null;
+      if (!isQuote && storeId) clearStoredDraft(storeId);
       // Le reçu (ou le devis) s'affiche aussitôt, prêt à être imprimé.
       setCreatedId(body.data.id);
     } finally {
@@ -297,6 +428,18 @@ export function SaleForm({
               </ul>
             </Alert>
           )}
+        </div>
+      )}
+      {!fromQuote && start && prefill.warnings.length > 0 && (
+        <div className="lg:col-span-3">
+          <Alert tone="warning">
+            Le stock a changé depuis la mise de côté de cette vente :
+            <ul className="mt-1 list-disc space-y-0.5 pl-4">
+              {prefill.warnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          </Alert>
         </div>
       )}
       <Card className="lg:col-span-2">
@@ -623,6 +766,12 @@ export function SaleForm({
           >
             {isQuote ? "Enregistrer le devis" : isCredit ? "Valider la vente à crédit" : "Encaisser la vente"}
           </Button>
+          {!isQuote && !quote && (
+            <Button type="button" variant="secondary" className="w-full" disabled={cart.length === 0 || submitting} loading={holding} onClick={() => void holdCurrentSale()}>
+              <Icon name="pause" className="h-4 w-4" />
+              Mettre en attente
+            </Button>
+          )}
         </div>
       </Card>
 
