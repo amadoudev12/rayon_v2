@@ -8,12 +8,9 @@ import { Card, CardHeader } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Icon } from "@/components/ui/Icon";
-import { TableContainer, Table, Thead, Th, Tr, Td } from "@/components/ui/Table";
-import { StatCard } from "@/components/dashboard/StatCard";
-import { RevenueTrendChart } from "@/components/dashboard/RevenueTrendChart";
 import { ActivityList, OrganizationStatusBadge } from "@/components/admin/parts";
 import { OrganizationStatusButton } from "@/components/admin/StatusActions";
-import { formatDate, formatDateTime, formatMoney, formatNumber, formatRelative, initials } from "@/lib/format";
+import { formatDate, formatDateTime, formatRelative, initials } from "@/lib/format";
 import { userContact } from "@/lib/auth/identifier";
 
 type MemberUser = {
@@ -27,49 +24,22 @@ type MemberUser = {
   creeLe: string;
 };
 
-/** Vue de supervision d'une boutique, calculée par le backend (`getOrganizationDetails`). */
+/**
+ * Fiche de supervision d'une boutique (`getOrganizationDetails`) : comptes,
+ * points de vente, statut et dernière activité. Le super administrateur ne
+ * voit pas l'activité commerciale (ventes, produits, clients, montants).
+ */
 type OrganizationDetails = {
   id: number;
   nom: string;
   slug: string;
-  devise: string;
   actif: boolean;
   creeLe: string;
   lastActivity: string | null;
   status: OrganizationStatus;
   owner: MemberUser | null;
-  stores: {
-    id: number;
-    nom: string;
-    adresse: string | null;
-    telephone: string | null;
-    parDefaut: boolean;
-    sales: number;
-    members: number;
-  }[];
+  stores: { id: number; nom: string; adresse: string | null; telephone: string | null; parDefaut: boolean; members: number }[];
   members: { id: number; role: Role; storeName: string | null; user: MemberUser }[];
-  counts: {
-    products: number;
-    activeProducts: number;
-    customers: number;
-    suppliers: number;
-    purchases: number;
-    sales: number;
-    cancelledSales: number;
-  };
-  revenue: { allTime: number; month: number; monthSales: number; averageBasket: number };
-  trend: { day: string; value: number; count: number }[];
-  recentSales: {
-    id: number;
-    total: number;
-    cancelled: boolean;
-    creeLe: string;
-    storeName: string;
-    seller: string;
-    customer: string | null;
-  }[];
-  topProducts: { id: number; nom: string; unite: string; quantity: number; amount: number }[];
-  recentProducts: { id: number; nom: string; prixVente: number; actif: boolean; creeLe: string; categorie: string | null }[];
   activity: ActivityEventJson[];
 };
 
@@ -89,10 +59,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 export default function AdminOrganizationPage() {
   const organization = useLoaderData<OrganizationDetails>();
-
-  const { devise: currency, counts, revenue } = organization;
   const now = new Date();
-  const trendTotal = organization.trend.reduce((total, point) => total + point.value, 0);
 
   return (
     <div>
@@ -116,9 +83,13 @@ export default function AdminOrganizationPage() {
             </div>
             <p className="mt-0.5 text-sm text-slate-500">
               Inscrite le {formatDate(organization.creeLe, { dateStyle: "long" })} ·{" "}
-              {organization.lastActivity
-                ? `dernière activité ${formatRelative(organization.lastActivity, now)}`
-                : "aucune activité enregistrée"}
+              {organization.lastActivity ? (
+                <time dateTime={organization.lastActivity} title={formatDateTime(organization.lastActivity)}>
+                  dernière activité {formatRelative(organization.lastActivity, now)}
+                </time>
+              ) : (
+                "aucune activité enregistrée"
+              )}
             </p>
           </div>
         </div>
@@ -127,70 +98,26 @@ export default function AdminOrganizationPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-        <StatCard
-          label="Chiffre d'affaires"
-          icon="coins"
-          value={formatMoney(revenue.allTime, currency)}
-          hint={`Ce mois-ci : ${formatMoney(revenue.month, currency)}`}
-        />
-        <StatCard
-          label="Ventes"
-          icon="receipt"
-          value={formatNumber(counts.sales)}
-          hint={
-            counts.sales > 0
-              ? `Panier moyen : ${formatMoney(revenue.averageBasket, currency)} · ${counts.cancelledSales} annulée(s)`
-              : "Aucune vente enregistrée"
-          }
-        />
-        <StatCard
-          label="Produits"
-          icon="box"
-          value={formatNumber(counts.products)}
-          hint={`${formatNumber(counts.activeProducts)} actif(s) au catalogue`}
-        />
-        <StatCard
-          label="Utilisateurs"
-          icon="users"
-          value={formatNumber(organization.members.length)}
-          hint={`${organization.stores.length} point(s) de vente · ${formatNumber(counts.customers)} client(s)`}
-        />
-      </div>
+      <p className="mb-6 flex items-start gap-2 rounded-lg border border-slate-200/80 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+        <Icon name="info" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
+        L&apos;activité commerciale de la boutique (ventes, produits, clients, montants) reste confidentielle : elle n&apos;est visible que
+        par ses membres.
+      </p>
 
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader
-            title="Chiffre d'affaires — 30 derniers jours"
-            description={`${formatMoney(trendTotal, currency)} sur la période · ventes annulées exclues`}
-          />
-          {trendTotal === 0 ? (
-            <EmptyState compact icon="chart" title="Aucune vente sur les 30 derniers jours" />
-          ) : (
-            <div className="px-2 pb-4 pt-2">
-              <RevenueTrendChart data={organization.trend} currency={currency} />
-            </div>
-          )}
-        </Card>
-
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <Card>
           <CardHeader title="Informations" />
           <dl className="divide-y divide-slate-100 py-1">
-            <Field label="Propriétaire">
-              {organization.owner ? `${organization.owner.prenom} ${organization.owner.nom}` : "Aucun"}
-            </Field>
+            <Field label="Propriétaire">{organization.owner ? `${organization.owner.prenom} ${organization.owner.nom}` : "Aucun"}</Field>
             <Field label="Email">{organization.owner?.email ?? "—"}</Field>
             <Field label="Téléphone">{organization.owner?.telephone ?? "—"}</Field>
-            <Field label="Devise">{currency}</Field>
             <Field label="Identifiant">{organization.slug}</Field>
-            <Field label="Fournisseurs">{formatNumber(counts.suppliers)}</Field>
-            <Field label="Achats enregistrés">{formatNumber(counts.purchases)}</Field>
+            <Field label="Points de vente">{organization.stores.length}</Field>
+            <Field label="Membres">{organization.members.length}</Field>
           </dl>
         </Card>
-      </div>
 
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Card>
+        <Card className="lg:col-span-2">
           <CardHeader title="Utilisateurs" description={`${organization.members.length} membre(s) dans cette boutique`} />
           {organization.members.length === 0 ? (
             <EmptyState compact icon="users" title="Aucun membre" />
@@ -228,9 +155,11 @@ export default function AdminOrganizationPage() {
             </ul>
           )}
         </Card>
+      </div>
 
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader title="Points de vente" description="Chaque point de vente a son stock et ses ventes" />
+          <CardHeader title="Points de vente" />
           <ul className="divide-y divide-slate-100">
             {organization.stores.map((store) => (
               <li key={store.id} className="flex items-center gap-3 px-5 py-3">
@@ -246,108 +175,10 @@ export default function AdminOrganizationPage() {
                     {[store.adresse, store.telephone].filter(Boolean).join(" · ") || "Adresse non renseignée"}
                   </p>
                 </div>
-                <p className="tabular shrink-0 text-sm text-slate-600">{formatNumber(store.sales)} vente(s)</p>
+                <p className="tabular shrink-0 text-sm text-slate-600">{store.members} membre(s)</p>
               </li>
             ))}
           </ul>
-        </Card>
-      </div>
-
-      <Card className="mt-6">
-        <CardHeader title="Dernières ventes" description="Consultation seule : les ventes se gèrent depuis la boutique" />
-        {organization.recentSales.length === 0 ? (
-          <EmptyState compact icon="receipt" title="Aucune vente" description="Cette boutique n'a encore enregistré aucune vente." />
-        ) : (
-          <TableContainer>
-            <Table>
-              <Thead>
-                <tr>
-                  <Th>Vente</Th>
-                  <Th>Point de vente</Th>
-                  <Th>Vendeur</Th>
-                  <Th>Client</Th>
-                  <Th>Statut</Th>
-                  <Th>Date</Th>
-                  <Th className="text-right">Total</Th>
-                </tr>
-              </Thead>
-              <tbody>
-                {organization.recentSales.map((sale) => (
-                  <Tr key={sale.id}>
-                    <Td className="tabular font-medium text-slate-900">#{String(sale.id).padStart(5, "0")}</Td>
-                    <Td className="whitespace-nowrap">{sale.storeName}</Td>
-                    <Td className="whitespace-nowrap">{sale.seller}</Td>
-                    <Td className="whitespace-nowrap">{sale.customer ?? "Client de passage"}</Td>
-                    <Td>
-                      <Badge dot tone={sale.cancelled ? "danger" : "success"}>
-                        {sale.cancelled ? "Annulée" : "Terminée"}
-                      </Badge>
-                    </Td>
-                    <Td className="whitespace-nowrap text-slate-500">{formatDateTime(sale.creeLe)}</Td>
-                    <Td
-                      className={`tabular whitespace-nowrap text-right font-medium ${
-                        sale.cancelled ? "text-slate-400 line-through" : "text-slate-900"
-                      }`}
-                    >
-                      {formatMoney(sale.total, currency)}
-                    </Td>
-                  </Tr>
-                ))}
-              </tbody>
-            </Table>
-          </TableContainer>
-        )}
-      </Card>
-
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card>
-          <CardHeader title="Meilleures ventes" description="Par quantité, depuis l'inscription" />
-          {organization.topProducts.length === 0 ? (
-            <EmptyState compact icon="box" title="Aucun produit vendu" />
-          ) : (
-            <ol className="divide-y divide-slate-100">
-              {organization.topProducts.map((product, index) => (
-                <li key={product.id} className="flex items-center justify-between gap-3 px-5 py-3">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="tabular flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-slate-50 text-xs font-semibold text-slate-500 ring-1 ring-inset ring-slate-200/70">
-                      {index + 1}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-slate-900">{product.nom}</p>
-                      <p className="text-xs text-slate-500">
-                        {formatNumber(product.quantity)} {product.unite} vendu(s)
-                      </p>
-                    </div>
-                  </div>
-                  <span className="tabular shrink-0 text-sm font-medium text-slate-700">{formatMoney(product.amount, currency)}</span>
-                </li>
-              ))}
-            </ol>
-          )}
-        </Card>
-
-        <Card>
-          <CardHeader title="Derniers produits ajoutés" description={`${formatNumber(counts.products)} produit(s) au total`} />
-          {organization.recentProducts.length === 0 ? (
-            <EmptyState compact icon="box" title="Aucun produit" description="Le catalogue de cette boutique est vide." />
-          ) : (
-            <ul className="divide-y divide-slate-100">
-              {organization.recentProducts.map((product) => (
-                <li key={product.id} className="flex items-center justify-between gap-3 px-5 py-3">
-                  <div className="min-w-0">
-                    <p className="flex items-center gap-2 text-sm font-medium text-slate-900">
-                      <span className="min-w-0 truncate">{product.nom}</span>
-                      {!product.actif && <Badge>Archivé</Badge>}
-                    </p>
-                    <p className="truncate text-xs text-slate-500">
-                      {product.categorie ?? "Sans catégorie"} · ajouté le {formatDate(product.creeLe)}
-                    </p>
-                  </div>
-                  <span className="tabular shrink-0 text-sm text-slate-700">{formatMoney(product.prixVente, currency)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
         </Card>
 
         <Card>

@@ -5,21 +5,18 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { SortableTh } from "@/components/admin/SortableTh";
 import { OrganizationStatusBadge } from "@/components/admin/parts";
 import { OrganizationStatusButton } from "@/components/admin/StatusActions";
-import { formatDate, formatMoney, formatNumber } from "@/lib/format";
+import { formatDate, formatNumber } from "@/lib/format";
 import { userContact } from "@/lib/auth/identifier";
 import type { OrganizationStatus } from "@/lib/services/platform";
 
 export type OrganizationRow = {
   id: number;
   nom: string;
-  devise: string;
   actif: boolean;
   creeLe: string | Date;
   owner: { prenom: string; nom: string; email: string | null; telephone: string | null } | null;
   stores: number;
-  products: number;
-  sales: number;
-  revenue: number;
+  members: number;
   status: OrganizationStatus;
   /** Durée écoulée depuis la dernière activité (« il y a 3 jours »), calculée par la page. */
   lastActivityLabel: string | null;
@@ -49,14 +46,8 @@ export function OrganizationsTable({ organizations, filtered }: { organizations:
               Boutique
             </SortableTh>
             <Th>Propriétaire</Th>
-            <SortableTh field="products" fallbackField="creeLe" align="right">
-              Produits
-            </SortableTh>
-            <SortableTh field="sales" fallbackField="creeLe" align="right">
-              Ventes
-            </SortableTh>
-            <SortableTh field="revenue" fallbackField="creeLe" align="right">
-              CA
+            <SortableTh field="members" fallbackField="creeLe" align="right">
+              Membres
             </SortableTh>
             <Th>Statut</Th>
             <SortableTh field="creeLe" fallbackField="creeLe">
@@ -80,7 +71,7 @@ export function OrganizationsTable({ organizations, filtered }: { organizations:
                   {organization.nom}
                 </Link>
                 <p className="whitespace-nowrap text-xs text-slate-500">
-                  {organization.stores} point(s) de vente · {organization.devise}
+                  {organization.stores} point(s) de vente
                 </p>
               </Td>
               <Td>
@@ -95,11 +86,7 @@ export function OrganizationsTable({ organizations, filtered }: { organizations:
                   <span className="text-slate-400">Aucun propriétaire</span>
                 )}
               </Td>
-              <Td className="tabular text-right">{formatNumber(organization.products)}</Td>
-              <Td className="tabular text-right">{formatNumber(organization.sales)}</Td>
-              <Td className="tabular whitespace-nowrap text-right font-medium text-slate-900">
-                {formatMoney(organization.revenue, organization.devise)}
-              </Td>
+              <Td className="tabular text-right">{formatNumber(organization.members)}</Td>
               <Td>
                 <OrganizationStatusBadge status={organization.status} />
               </Td>

@@ -15,15 +15,11 @@ import { NewOrganizationButton } from "./NewOrganizationButton";
 type OrganizationListItem = {
   id: number;
   nom: string;
-  devise: string;
   actif: boolean;
   creeLe: string;
   owner: { prenom: string; nom: string; email: string | null; telephone: string | null } | null;
   stores: number;
   members: number;
-  products: number;
-  sales: number;
-  revenue: number;
   lastActivity: string | null;
   status: OrganizationStatus;
 };
@@ -44,7 +40,7 @@ const STATUS_OPTIONS = [
   { value: "active", label: "Actives" },
   { value: "inactive", label: "Inactives" },
   { value: "suspended", label: "Suspendues" },
-  { value: "nosales", label: "Sans aucune vente" },
+  { value: "never", label: "Jamais utilisées" },
 ];
 
 export default function AdminOrganizationsPage() {
@@ -71,14 +67,11 @@ export default function AdminOrganizationsPage() {
           organizations={items.map((item) => ({
             id: item.id,
             nom: item.nom,
-            devise: item.devise,
             actif: item.actif,
             creeLe: item.creeLe,
             owner: item.owner,
             stores: item.stores,
-            products: item.products,
-            sales: item.sales,
-            revenue: item.revenue,
+            members: item.members,
             status: item.status,
             lastActivityLabel: item.lastActivity ? formatRelative(item.lastActivity, now) : null,
           }))}

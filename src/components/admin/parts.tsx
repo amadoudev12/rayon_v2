@@ -2,22 +2,8 @@ import { Link } from "@/lib/navigation";
 import { Badge } from "@/components/ui/Badge";
 import { Icon } from "@/components/ui/Icon";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { formatDateTime, formatMoney, formatPercent, formatRelative } from "@/lib/format";
+import { formatDateTime, formatRelative } from "@/lib/format";
 import type { ActivityEvent, OrganizationStatus } from "@/lib/services/platform";
-
-/** Variation par rapport à la période précédente : verte en hausse, rouge en baisse. */
-export function Trend({ value, label, fallback }: { value: number | null; label: string; fallback: string }) {
-  if (value === null) return <>{fallback}</>;
-  return (
-    <>
-      <span className={`inline-flex items-center gap-0.5 font-medium ${value >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-        <Icon name={value >= 0 ? "trendingUp" : "trendingDown"} className="h-3 w-3" />
-        {formatPercent(value)}
-      </span>{" "}
-      {label}
-    </>
-  );
-}
 
 const ORGANIZATION_STATUS = {
   active: { label: "Active", tone: "success" },
@@ -65,7 +51,7 @@ const EVENT_TONES = {
 export function ActivityList({
   events,
   linkOrganizations = true,
-  emptyDescription = "Les inscriptions, ventes et actions d'administration apparaîtront ici.",
+  emptyDescription = "Les inscriptions et actions d'administration apparaîtront ici.",
 }: {
   events: ActivityEvent[];
   /** Faux sur la page d'une boutique : inutile de lier vers la page où l'on est déjà. */
@@ -103,15 +89,6 @@ export function ActivityList({
               · {event.subtitle}
             </p>
           </div>
-          {event.amount && (
-            <span
-              className={`tabular shrink-0 text-sm font-semibold ${
-                event.amount.cancelled ? "text-slate-400 line-through" : "text-slate-900"
-              }`}
-            >
-              {formatMoney(event.amount.value, event.amount.currency)}
-            </span>
-          )}
         </li>
       ))}
     </ul>

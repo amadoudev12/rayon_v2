@@ -1,9 +1,13 @@
 /**
  * Constantes et formes de données de l'espace super administrateur.
  *
- * Les calculs sont faits par le backend (`backend/src/lib/services/platform.ts`
+ * Les calculs sont faits par le backend (`backend/src/services/platform.ts`
  * et `platform-admin.ts`) ; ce fichier ne garde que ce dont l'affichage a
  * besoin : libellés, listes de filtres et types des réponses.
+ *
+ * Confidentialité : le super administrateur ne reçoit AUCUNE donnée
+ * commerciale des boutiques (ventes, chiffre d'affaires, produits, clients) ;
+ * seulement les comptes, les statuts et la date de dernière activité.
  */
 
 /** Sans activité depuis ce nombre de jours, une boutique est dite « inactive ». */
@@ -21,10 +25,8 @@ export const RANGE_LABELS: Record<PlatformRange, string> = {
 
 export type OrganizationStatus = "active" | "inactive" | "suspended";
 
-export type SeriesPoint = { day: string; value: number; count: number };
-
 export type PlatformAlert = {
-  key: "inactive" | "noSales" | "suspended" | "onboarding";
+  key: "inactive" | "neverUsed" | "suspended" | "onboarding";
   tone: "warning" | "danger" | "neutral";
   count: number;
   title: string;
@@ -32,14 +34,12 @@ export type PlatformAlert = {
   href: string;
 };
 
-export const ACTIVITY_KINDS = ["organization", "user", "product", "sale", "admin"] as const;
+export const ACTIVITY_KINDS = ["organization", "user", "admin"] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
 export const ACTIVITY_KIND_LABELS: Record<ActivityKind, string> = {
   organization: "Boutiques créées",
   user: "Inscriptions",
-  product: "Produits ajoutés",
-  sale: "Ventes",
   admin: "Actions d'administration",
 };
 
@@ -53,7 +53,6 @@ export type ActivityEvent = {
   subtitle: string;
   date: Date;
   organization: { id: number; name: string } | null;
-  amount?: { value: number; currency: string; cancelled: boolean };
 };
 
 /** Événement tel qu'il arrive en JSON : la date est une chaîne ISO. */
@@ -64,54 +63,23 @@ export function reviveEvents(events: ActivityEventJson[]): ActivityEvent[] {
   return events.map((event) => ({ ...event, date: new Date(event.date) }));
 }
 
-/** GET /api/pages/admin : chiffres de la vue d'ensemble (voir `getPlatformOverview` côté backend). */
+/** GET /api/pages/admin : comptes et activité de la plateforme (voir `getPlatformOverview`). */
 export type PlatformOverview = {
   range: PlatformRange;
   period: { start: string; end: string };
-  /** Devise des montants affichés, et devises disponibles (une par devise d'organisation). */
-  currency: string;
-  currencies: string[];
   organizations: { total: number; suspended: number; active: number; inactive: number; created: number; previousCreated: number };
   users: { total: number; active: number; created: number; disabled: number };
-  products: number;
   stores: number;
-  revenue: {
-    allTime: number;
-    today: number;
-    month: number;
-    monthChange: number | null;
-    period: number;
-    periodChange: number | null;
-    /** Nombre d'organisations qui facturent dans cette devise. */
-    organizations: number;
-  };
-  /** Nombres de ventes terminées, toutes devises confondues. */
-  sales: { allTime: number; today: number; period: number; periodChange: number | null };
-  series: SeriesPoint[];
-  topOrganizations: { id: number; name: string; currency: string; revenue: number; sales: number }[];
-  topProducts: { id: number; name: string; unit: string; organization: string; currency: string; quantity: number; amount: number }[];
+  /** Boutiques classées par dernière activité (date seulement). */
+  recentlyActive: { id: number; name: string; actif: boolean; lastActivity: string | null; status: OrganizationStatus }[];
 };
 
-/** GET /api/pages/admin/statistiques (voir `getPlatformAnalytics` côté backend). */
+/** Répartition par ancienneté de la dernière activité. */
+export type ActivityBuckets = { today: number; week: number; month: number; older: number; never: number };
+
+/** GET /api/pages/admin/statistiques (voir `getPlatformAnalytics`). */
 export type PlatformAnalytics = {
-  range: PlatformRange;
-  period: { start: string; end: string };
-  currency: string;
-  currencies: string[];
-  revenue: { period: number; periodChange: number | null; averageBasket: number };
-  sales: { period: number; periodChange: number | null; cancelled: number; cancellationRate: number | null };
-  series: SeriesPoint[];
-  paymentMethods: { method: string; count: number; revenue: number }[];
-  ranking: {
-    id: number;
-    name: string;
-    currency: string;
-    actif: boolean;
-    revenue: number;
-    sales: number;
-    lastActivity: string | null;
-    averageBasket: number;
-    status: OrganizationStatus;
-  }[];
   signups: { week: string; organizations: number; users: number }[];
+  organizationActivity: ActivityBuckets;
+  userActivity: ActivityBuckets;
 };

@@ -20,51 +20,22 @@ const OPTION_ACTIVE = "bg-slate-900 text-white";
 const OPTION_IDLE = "text-slate-600 hover:bg-slate-100 hover:text-slate-900";
 
 /**
- * Choix de la période (et de la devise quand la plateforme en compte
- * plusieurs). De simples liens : l'état vit dans l'URL, les chiffres sont
- * recalculés par le backend à chaque changement.
+ * Choix de la période. De simples liens : l'état vit dans l'URL, les
+ * chiffres sont recalculés par le backend à chaque changement.
  */
-export function PeriodFilter({
-  basePath,
-  searchParams,
-  range,
-  currency,
-  currencies,
-}: {
-  basePath: string;
-  searchParams: SearchParams;
-  range: PlatformRange;
-  currency: string;
-  currencies: string[];
-}) {
+export function PeriodFilter({ basePath, searchParams, range }: { basePath: string; searchParams: SearchParams; range: PlatformRange }) {
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      {currencies.length > 1 && (
-        <div className={GROUP} role="group" aria-label="Devise des montants">
-          {currencies.map((option) => (
-            <Link
-              key={option}
-              href={buildHref(basePath, searchParams, { currency: option })}
-              aria-current={option === currency ? "true" : undefined}
-              className={`${OPTION} ${option === currency ? OPTION_ACTIVE : OPTION_IDLE}`}
-            >
-              {option}
-            </Link>
-          ))}
-        </div>
-      )}
-      <div className={GROUP} role="group" aria-label="Période">
-        {PLATFORM_RANGES.map((option) => (
-          <Link
-            key={option}
-            href={buildHref(basePath, searchParams, { range: option })}
-            aria-current={option === range ? "true" : undefined}
-            className={`${OPTION} ${option === range ? OPTION_ACTIVE : OPTION_IDLE}`}
-          >
-            {SHORT_LABELS[option]}
-          </Link>
-        ))}
-      </div>
+    <div className={GROUP} role="group" aria-label="Période">
+      {PLATFORM_RANGES.map((option) => (
+        <Link
+          key={option}
+          href={buildHref(basePath, searchParams, { range: option })}
+          aria-current={option === range ? "true" : undefined}
+          className={`${OPTION} ${option === range ? OPTION_ACTIVE : OPTION_IDLE}`}
+        >
+          {SHORT_LABELS[option]}
+        </Link>
+      ))}
     </div>
   );
 }
