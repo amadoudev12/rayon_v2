@@ -137,8 +137,21 @@ export function OnboardingWizard() {
             <FormField label="Adresse (optionnel)" htmlFor="adresseBoutique">
               <input id="adresseBoutique" className={inputClass} {...orgForm.register("adresseBoutique")} />
             </FormField>
-            <FormField label="Téléphone " htmlFor="telephoneBoutique">
-              <input id="telephoneBoutique" className={inputClass} {...orgForm.register("telephoneBoutique")} />
+            <FormField
+              label="Téléphone de la boutique"
+              htmlFor="telephoneBoutique"
+              error={orgForm.formState.errors.telephoneBoutique?.message}
+              hint="Avec l'indicatif du pays."
+            >
+              <input
+                id="telephoneBoutique"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                placeholder="+225 07 07 05 75 65"
+                className={inputClass}
+                {...orgForm.register("telephoneBoutique")}
+              />
             </FormField>
           </div>
           <FormField label="Devise" htmlFor="devise">
