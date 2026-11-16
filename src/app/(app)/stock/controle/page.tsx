@@ -1,59 +1,186 @@
-import { useEffect, useState } from "react";
-import { apiFetch } from "@/lib/api";
+import { useState } from "react";
+import { useLoaderData, type LoaderFunctionArgs } from "react-router";
+import { loadPage } from "@/lib/api";
+import { useSearchParamsRecord } from "@/lib/navigation";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { Card } from "@/components/ui/Card";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Pagination } from "@/components/ui/Pagination";
+import { SearchInput } from "@/components/ui/SearchInput";
+import { inputClass } from "@/components/ui/FormField";
+import { TableContainer, Table, Thead, Th, Tr, Td } from "@/components/ui/Table";
+import { useToast } from "@/components/ui/ToastProvider";
+import { sendJson } from "@/lib/mutation";
+import { STOCK_LEVEL } from "@/lib/labels";
 
-type StockRow = { id: number; boutiqueId: number; produitId: number; quantite: number; seuilAlerte: number; niveau: "OUT" | "LOW" | "NORMAL"; produit: { nom: string } };
-type StockPage = { data: StockRow[]; pagination: { totalPages: number } };
-type Alert = { type: "STOCK" | "REPEATED_LOSS"; produitId: number; produit: string; quantite: number; seuilAlerte: number; niveau: "OUT" | "LOW" | "REPEATED_LOSS"; occurrences?: number };
+type Level = "OUT" | "LOW" | "NORMAL";
+type StockAlert =
+  | { type: "STOCK"; produitId: number; produit: string; quantite: number; seuilAlerte: number; niveau: Level }
+  | { type: "REPEATED_LOSS"; produitId: number; produit: string; quantite: number; seuilAlerte: number; niveau: "REPEATED_LOSS"; occurrences: number };
+type StockRow = { id: number; produitId: number; quantite: number; seuilAlerte: number; niveau: Level; produit: { nom: string; unite: string } };
 
+type StockControlPageData = {
+  store: { id: number; nom: string };
+  alerts: StockAlert[];
+  rows: StockRow[];
+  canManageThresholds: boolean;
+  page: number;
+  totalPages: number;
+  total: number;
+};
+
+export function loader({ request }: LoaderFunctionArgs) {
+  return loadPage<StockControlPageData>("/stock/controle", request);
+}
+
+/** Ruptures, stocks faibles, pertes répétées et seuils d'alerte de la boutique active. */
 export default function StockControlPage() {
-  const [rows, setRows] = useState<StockRow[]>([]);
-  const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [thresholds, setThresholds] = useState<Record<number, string>>({});
-  const [error, setError] = useState("");
-  const [saved, setSaved] = useState<number | null>(null);
+  const params = useSearchParamsRecord();
+  const { store, alerts, rows, canManageThresholds, page, totalPages, total } = useLoaderData<StockControlPageData>();
+  const stockAlerts = alerts.filter((alert): alert is Extract<StockAlert, { type: "STOCK" }> => alert.type === "STOCK");
+  const lossAlerts = alerts.filter((alert): alert is Extract<StockAlert, { type: "REPEATED_LOSS" }> => alert.type === "REPEATED_LOSS");
 
-  useEffect(() => {
-    void Promise.all([apiFetch("/api/stock?limit=100&page=1"), apiFetch("/api/stock/alerts")])
-      .then(async ([stockResponse, alertResponse]) => {
-        const first = await stockResponse.json() as StockPage;
-        const alertBody = await alertResponse.json() as { data: Alert[]; message?: string };
-        if (!stockResponse.ok || !alertResponse.ok) throw new Error(alertBody.message ?? "Chargement impossible.");
-        const pages = await Promise.all(Array.from({ length: Math.max(0, first.pagination.totalPages - 1) }, (_, index) => apiFetch(`/api/stock?limit=100&page=${index + 2}`).then((response) => response.json() as Promise<StockPage>)));
-        const stockRows = [...first.data, ...pages.flatMap((page) => page.data)];
-        setRows(stockRows);
-        setAlerts(alertBody.data);
-        setThresholds(Object.fromEntries(stockRows.map((row) => [row.produitId, String(row.seuilAlerte)])));
-      })
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Chargement impossible."));
-  }, []);
+  return (
+    <div className="space-y-6">
+      <PageHeader title="Alertes et seuils de stock" description={`Boutique ${store.nom}. Le seuil propre à la boutique est prioritaire sur le seuil par défaut du produit.`} />
 
-  async function save(row: StockRow) {
-    setError(""); setSaved(null);
-    try {
-      const response = await apiFetch("/api/stock/threshold", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boutiqueId: row.boutiqueId, produitId: row.produitId, seuilAlerte: Number(thresholds[row.produitId]) }) });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.message ?? "Modification impossible.");
-      setSaved(row.produitId);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Modification impossible."); }
+      <Card>
+        <h2 className="border-b border-slate-100 px-5 py-3 text-sm font-semibold text-slate-900">Ruptures et stocks faibles ({stockAlerts.length})</h2>
+        {stockAlerts.length === 0 ? (
+          <EmptyState compact icon="checkCircle" title="Aucune rupture ni stock faible" />
+        ) : (
+          <TableContainer>
+            <Table>
+              <Thead>
+                <tr>
+                  <Th>Produit</Th>
+                  <Th className="text-right">Disponible</Th>
+                  <Th className="text-right">Seuil</Th>
+                  <Th>État</Th>
+                </tr>
+              </Thead>
+              <tbody>
+                {stockAlerts.map((alert) => (
+                  <Tr key={alert.produitId}>
+                    <Td className="font-medium text-slate-900">{alert.produit}</Td>
+                    <Td className="tabular text-right">{alert.quantite}</Td>
+                    <Td className="tabular text-right">{alert.seuilAlerte}</Td>
+                    <Td>
+                      <Badge dot tone={STOCK_LEVEL[alert.niveau].tone}>
+                        {STOCK_LEVEL[alert.niveau].label}
+                      </Badge>
+                    </Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
+          </TableContainer>
+        )}
+      </Card>
+
+      <Card>
+        <h2 className="border-b border-slate-100 px-5 py-3 text-sm font-semibold text-slate-900">Pertes répétées sur 30 jours</h2>
+        {lossAlerts.length === 0 ? (
+          <EmptyState compact icon="checkCircle" title="Aucune série de pertes" description="Un produit est signalé à partir de 3 déclarations actives en 30 jours." />
+        ) : (
+          <TableContainer>
+            <Table>
+              <Thead>
+                <tr>
+                  <Th>Produit</Th>
+                  <Th className="text-right">Déclarations</Th>
+                  <Th className="text-right">Quantité perdue</Th>
+                </tr>
+              </Thead>
+              <tbody>
+                {lossAlerts.map((alert) => (
+                  <Tr key={alert.produitId}>
+                    <Td className="font-medium text-slate-900">{alert.produit}</Td>
+                    <Td className="tabular text-right">{alert.occurrences}</Td>
+                    <Td className="tabular text-right">{alert.quantite}</Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
+          </TableContainer>
+        )}
+      </Card>
+
+      <Card>
+        <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-sm font-semibold text-slate-900">Seuils d&apos;alerte</h2>
+          <SearchInput placeholder="Rechercher un produit…" />
+        </div>
+        {rows.length === 0 ? (
+          <EmptyState compact icon="box" title="Aucun produit" />
+        ) : (
+          <>
+            <TableContainer>
+              <Table>
+                <Thead>
+                  <tr>
+                    <Th>Produit</Th>
+                    <Th className="text-right">Stock</Th>
+                    <Th>Seuil</Th>
+                  </tr>
+                </Thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <Tr key={row.id}>
+                      <Td className="font-medium text-slate-900">{row.produit.nom}</Td>
+                      <Td className="tabular text-right">
+                        {row.quantite} {row.produit.unite}
+                      </Td>
+                      <Td>{canManageThresholds ? <ThresholdInput row={row} /> : row.seuilAlerte}</Td>
+                    </Tr>
+                  ))}
+                </tbody>
+              </Table>
+            </TableContainer>
+            <Pagination basePath="/stock/controle" searchParams={params} page={page} totalPages={totalPages} total={total} />
+          </>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+/** Modification du seuil d'un produit pour la boutique active. */
+function ThresholdInput({ row }: { row: StockRow }) {
+  const { push } = useToast();
+  const [value, setValue] = useState(String(row.seuilAlerte));
+  const [saved, setSaved] = useState(String(row.seuilAlerte));
+  const [busy, setBusy] = useState(false);
+  const amount = Number(value);
+  const valid = value !== "" && Number.isInteger(amount) && amount >= 0 && amount <= 1_000_000;
+
+  async function save() {
+    if (!valid) return;
+    setBusy(true);
+    const result = await sendJson("/api/stock/threshold", { produitId: row.produitId, seuilAlerte: amount }, { method: "PUT" });
+    setBusy(false);
+    if (!result.ok) return push(result.message, "error");
+    setSaved(value);
+    push(`Seuil de « ${row.produit.nom} » : ${amount}`, "success");
   }
 
-  const stockAlerts = alerts.filter((alert) => alert.type === "STOCK");
-  const repeatedLossAlerts = alerts.filter((alert) => alert.type === "REPEATED_LOSS");
-  return <main className="space-y-5 p-6">
-    <PageHeader title="Alertes et seuils de stock" description="Seuil boutique prioritaire, sinon seuil par défaut du produit." />
-    {error && <p role="alert" className="text-red-700">{error}</p>}
-    <section className="rounded-xl border border-line bg-white p-5">
-      <h2 className="mb-3 font-semibold">Ruptures et stocks faibles</h2>
-      {stockAlerts.length ? <table className="w-full text-left text-sm"><thead><tr><th>Produit</th><th>Disponible</th><th>Seuil</th><th>État</th></tr></thead><tbody>{stockAlerts.map((row) => <tr className="border-t border-line" key={row.produitId}><td className="py-3">{row.produit}</td><td>{row.quantite}</td><td>{row.seuilAlerte}</td><td>{row.niveau === "OUT" ? "Rupture" : "Stock faible"}</td></tr>)}</tbody></table> : <p className="text-sm text-muted">Aucune rupture ni stock faible.</p>}
-    </section>
-    <section className="rounded-xl border border-line bg-white p-5">
-      <h2 className="mb-3 font-semibold">Pertes répétées sur 30 jours</h2>
-      {repeatedLossAlerts.length ? <table className="w-full text-left text-sm"><thead><tr><th>Produit</th><th>Déclarations actives</th><th>Quantité perdue</th></tr></thead><tbody>{repeatedLossAlerts.map((row) => <tr className="border-t border-line" key={row.produitId}><td className="py-3">{row.produit}</td><td>{row.occurrences}</td><td>{row.quantite}</td></tr>)}</tbody></table> : <p className="text-sm text-muted">Aucune répétition détectée.</p>}
-    </section>
-    <section className="rounded-xl border border-line bg-white p-5">
-      <h2 className="mb-3 font-semibold">Seuils par boutique</h2>
-      <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th>Produit</th><th>Stock</th><th>Seuil actif</th><th>Enregistrer</th></tr></thead><tbody>{rows.map((row) => <tr className="border-t border-line" key={row.produitId}><td className="py-3">{row.produit.nom}</td><td>{row.quantite}</td><td><input aria-label={`Seuil ${row.produit.nom}`} className="w-24 rounded-md border p-2" min="0" type="number" value={thresholds[row.produitId] ?? ""} onChange={(event) => setThresholds((old) => ({ ...old, [row.produitId]: event.target.value }))} /></td><td><button className="text-primary" onClick={() => void save(row)}>{saved === row.produitId ? "Enregistré" : "Sauvegarder"}</button></td></tr>)}</tbody></table></div>
-    </section>
-  </main>;
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        aria-label={`Seuil d'alerte de ${row.produit.nom}`}
+        type="number"
+        min={0}
+        step={1}
+        inputMode="numeric"
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        className={`${inputClass} w-24`}
+      />
+      <Button size="sm" variant="secondary" loading={busy} disabled={!valid || value === saved} onClick={() => void save()}>
+        Enregistrer
+      </Button>
+    </div>
+  );
 }

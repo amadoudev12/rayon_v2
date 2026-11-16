@@ -200,7 +200,12 @@ export default function DashboardPage() {
           value={formatMoney(stats.todayRevenue, currency)}
           hint={`${stats.todaySalesCount} vente(s)`}
         />
-        <StatCard label="Net encaissé aujourd'hui" icon="coins" value={formatMoney(stats.todayNetCollected, currency)} hint={`Encaissé ${formatMoney(stats.todayCollected, currency)} · rendu ${formatMoney(stats.todayRefunded, currency)}`} />
+        <StatCard
+          label="Net encaissé aujourd'hui"
+          icon="coins"
+          value={formatMoney(stats.todayNetCollected, currency)}
+          hint={`Encaissé ${formatMoney(stats.todayCollected, currency)} · rendu ${formatMoney(stats.todayRefunded, currency)}`}
+        />
         <StatCard
           label="Remboursements à verser"
           icon="wallet"

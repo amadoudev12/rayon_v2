@@ -11,7 +11,6 @@ import { sendJson } from "@/lib/mutation";
 import { formatDateTime } from "@/lib/format";
 import { ProductPicker, type PickedProduct } from "./ProductPicker";
 
-type Store = { id: number; nom: string };
 type Category = { id: number; nom: string };
 export type InventorySummary = {
   id: number;
@@ -37,13 +36,11 @@ async function getData<T>(path: string): Promise<T> {
   return body.data as T;
 }
 
-/** Démarrer une session d'inventaire et consulter l'historique. */
+/** Démarrer une session d'inventaire et consulter l'historique, pour la boutique active. */
 export function InventoryList() {
   const { push } = useToast();
   const [rows, setRows] = useState<InventorySummary[]>([]);
-  const [stores, setStores] = useState<Store[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [storeId, setStoreId] = useState("");
   const [label, setLabel] = useState("");
   const [selection, setSelection] = useState<"ALL" | "CATEGORY" | "MANUAL">("ALL");
   const [categoryId, setCategoryId] = useState("");
@@ -54,13 +51,11 @@ export function InventoryList() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getData<InventorySummary[]>("/api/inventories"), getData<Store[]>("/api/stores"), getData<Category[]>("/api/categories")])
-      .then(([inventories, storeRows, categoryRows]) => {
+    Promise.all([getData<InventorySummary[]>("/api/inventories"), getData<Category[]>("/api/categories")])
+      .then(([inventories, categoryRows]) => {
         if (cancelled) return;
         setRows(inventories);
-        setStores(storeRows);
         setCategories(categoryRows);
-        setStoreId((current) => current || String(storeRows[0]?.id ?? ""));
       })
       .catch((cause: unknown) => !cancelled && setError(cause instanceof Error ? cause.message : "Chargement impossible."));
     return () => {
@@ -68,13 +63,13 @@ export function InventoryList() {
     };
   }, [version]);
 
-  const canCreate = Boolean(storeId) && (selection !== "CATEGORY" || Boolean(categoryId)) && (selection !== "MANUAL" || picked.length > 0);
+  const canCreate = (selection !== "CATEGORY" || Boolean(categoryId)) && (selection !== "MANUAL" || picked.length > 0);
 
   async function create() {
     setBusy(true);
     setError(null);
+    // Boutique : celle du sélecteur (le serveur la lit dans la session du site).
     const result = await sendJson("/api/inventories", {
-      boutiqueId: Number(storeId),
       libelle: label.trim() || "Inventaire physique",
       selectionType: selection,
       ...(selection === "CATEGORY" ? { categorieId: Number(categoryId) } : {}),
@@ -97,15 +92,6 @@ export function InventoryList() {
           Un seul inventaire peut être en cours à la fois sur un même produit. Les ventes et achats faits pendant le comptage sont pris en compte à la validation.
         </p>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <FormField label="Boutique" htmlFor="inventoryStore">
-            <select id="inventoryStore" value={storeId} onChange={(event) => setStoreId(event.target.value)} className={selectClass}>
-              {stores.map((store) => (
-                <option key={store.id} value={store.id}>
-                  {store.nom}
-                </option>
-              ))}
-            </select>
-          </FormField>
           <FormField label="Libellé" htmlFor="inventoryLabel">
             <input id="inventoryLabel" value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} placeholder="Inventaire du rayon épicerie" />
           </FormField>

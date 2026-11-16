@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Alert } from "@/components/ui/Alert";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ReasonDialog } from "@/components/ui/ReasonDialog";
 import { inputClass } from "@/components/ui/FormField";
 import { useToast } from "@/components/ui/ToastProvider";
 import { apiFetch } from "@/lib/api";
@@ -89,12 +90,20 @@ export function InventoryDetail({ id }: { id: number }) {
     setInventory((current) => current && { ...current, lignes: current.lignes.map((item) => (item.id === line.id ? { ...item, ...result.data } : item)) });
   }
 
-  async function run(action: "validate" | "cancel") {
+  async function validate() {
     setBusy(true);
-    const result = await sendJson(`/api/inventories/${id}/${action}`, action === "cancel" ? { motif: "Annulation demandée depuis l'application" } : {});
+    const result = await sendJson(`/api/inventories/${id}/validate`, {});
     setBusy(false);
     if (!result.ok) return setError(result.message);
-    push(action === "validate" ? "Inventaire validé : le stock a été corrigé" : "Inventaire annulé", "success");
+    push("Inventaire validé : le stock a été corrigé", "success");
+    setVersion((current) => current + 1);
+  }
+
+  /** Renvoie le message d'erreur à afficher dans la fenêtre du motif. */
+  async function cancelInventory(reason: string) {
+    const result = await sendJson(`/api/inventories/${id}/cancel`, { motif: reason });
+    if (!result.ok) return result.message;
+    push("Inventaire annulé : le stock n'a pas été modifié", "success");
     setVersion((current) => current + 1);
   }
 
@@ -105,7 +114,10 @@ export function InventoryDetail({ id }: { id: number }) {
       ["Produit", "Référence", "Théorique", "Compté", "Écart", "Coût unitaire", "Valeur écart"],
       inventory.lignes.map((line) => {
         const delta = line.quantiteComptee === null ? null : line.quantiteComptee - line.quantiteTheorique;
-        return [line.produitNom, line.produitReference, line.quantiteTheorique, line.quantiteComptee, delta, Number(line.coutUnitaire), delta === null ? null : delta * Number(line.coutUnitaire)];
+        // Calcul en centimes entiers : aucun arrondi de nombre flottant (0,10 × 3 = 0,30).
+        const costCents = Math.round(Number(line.coutUnitaire) * 100);
+        const deltaValue = delta === null ? null : ((costCents * delta) / 100).toFixed(2).replace(".", ",");
+        return [line.produitNom, line.produitReference, line.quantiteTheorique, line.quantiteComptee, delta, line.coutUnitaire.replace(".", ","), deltaValue];
       }),
     );
   }
@@ -238,17 +250,22 @@ export function InventoryDetail({ id }: { id: number }) {
       </p>
 
       <ConfirmDialog
-        open={confirm !== null}
+        open={confirm === "validate"}
         onClose={() => setConfirm(null)}
-        onConfirm={() => void run(confirm!)}
-        title={confirm === "validate" ? "Valider cet inventaire ?" : "Annuler cet inventaire ?"}
-        description={
-          confirm === "validate"
-            ? "Le stock de chaque produit sera corrigé selon le comptage, en tenant compte des ventes et achats faits depuis. Chaque correction est tracée."
-            : "Le comptage sera abandonné ; le stock ne sera pas modifié."
-        }
-        confirmLabel={confirm === "validate" ? "Valider" : "Annuler l'inventaire"}
-        danger={confirm === "cancel"}
+        onConfirm={validate}
+        title="Valider cet inventaire ?"
+        description="Le stock de chaque produit sera corrigé selon le comptage, en tenant compte des ventes et achats faits depuis. Chaque correction est tracée."
+        confirmLabel="Valider"
+      />
+      <ReasonDialog
+        open={confirm === "cancel"}
+        onClose={() => setConfirm(null)}
+        onConfirm={cancelInventory}
+        title="Annuler cet inventaire ?"
+        description="Le comptage sera abandonné ; le stock ne sera pas modifié."
+        confirmLabel="Annuler l'inventaire"
+        placeholder="Ex. : comptage interrompu, erreur de sélection…"
+        danger
       />
     </div>
   );

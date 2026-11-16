@@ -17,9 +17,9 @@ import ProductsPage, { loader as productsLoader } from "@/app/(app)/produits/pag
 import StockPage, { loader as stockLoader } from "@/app/(app)/stock/page";
 import StockMovementsPage, { loader as stockMovementsLoader } from "@/app/(app)/stock/mouvements/page";
 import InventoriesPage from "@/app/(app)/stock/inventaires/page";
-import LossesPage from "@/app/(app)/stock/pertes/page";
-import StockControlPage from "@/app/(app)/stock/controle/page";
-import StockReportsPage from "@/app/(app)/stock/rapports/page";
+import LossesPage, { loader as lossesLoader } from "@/app/(app)/stock/pertes/page";
+import StockControlPage, { loader as stockControlLoader } from "@/app/(app)/stock/controle/page";
+import StockReportsPage, { loader as stockReportsLoader } from "@/app/(app)/stock/rapports/page";
 import SalesPage, { loader as salesLoader } from "@/app/(app)/ventes/page";
 import NewSalePage, { loader as newSaleLoader } from "@/app/(app)/ventes/nouvelle/page";
 import CreditsPage, { loader as creditsLoader } from "@/app/(app)/creances/page";
@@ -89,9 +89,9 @@ export const router = createBrowserRouter([
               { path: "stock/mouvements", loader: stockMovementsLoader, element: <StockMovementsPage /> },
               { path: "stock/inventaires", element: <InventoriesPage /> },
               { path: "stock/inventaires/:id", element: <InventoriesPage /> },
-              { path: "stock/pertes", element: <LossesPage /> },
-              { path: "stock/controle", element: <StockControlPage /> },
-              { path: "stock/rapports", element: <StockReportsPage /> },
+              { path: "stock/pertes", loader: lossesLoader, element: <LossesPage /> },
+              { path: "stock/controle", loader: stockControlLoader, element: <StockControlPage /> },
+              { path: "stock/rapports", loader: stockReportsLoader, element: <StockReportsPage /> },
               { path: "ventes", loader: salesLoader, element: <SalesPage /> },
               { path: "ventes/nouvelle", loader: newSaleLoader, element: <NewSalePage /> },
               { path: "creances", loader: creditsLoader, element: <CreditsPage /> },

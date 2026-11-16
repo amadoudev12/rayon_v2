@@ -1,21 +1,168 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router";
-import { apiFetch } from "@/lib/api";
-import { Button } from "@/components/ui/Button";
+import { useState } from "react";
+import { useLoaderData, type LoaderFunctionArgs } from "react-router";
+import { loadPage } from "@/lib/api";
+import { useRouter, useSearchParamsRecord } from "@/lib/navigation";
 import { PageHeader } from "@/components/ui/PageHeader";
-type Store = { id: number; nom: string };
-type Product = { id: number; nom: string; quantiteStock: number };
-type Loss = { id: number; reference: string; quantite: number; motif: string; statut: string; canCancel: boolean; produit: { nom: string }; boutique: { nom: string }; creeLe: string };
-async function read<T>(path: string, init?: RequestInit) { const response = await apiFetch(path, init); const body = await response.json(); if (!response.ok) throw new Error(body.message ?? "La requête a échoué."); return body.data as T; }
+import { Card } from "@/components/ui/Card";
+import { Badge } from "@/components/ui/Badge";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Pagination } from "@/components/ui/Pagination";
+import { ReasonDialog } from "@/components/ui/ReasonDialog";
+import { LinkButton } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
+import { TableContainer, Table, Thead, Th, Tr, Td } from "@/components/ui/Table";
+import { useToast } from "@/components/ui/ToastProvider";
+import { sendJson } from "@/lib/mutation";
+import { formatDateTime, formatMoney } from "@/lib/format";
+import { LOSS_STATUS } from "@/lib/labels";
+import { LossForm } from "./LossForm";
+
+export type LossReasonOption = { value: string; label: string };
+
+type Loss = {
+  id: number;
+  reference: string;
+  quantite: number;
+  motifLibelle: string;
+  description: string | null;
+  statut: "ACTIVE" | "CANCELLED";
+  valeur: string;
+  creeLe: string;
+  annuleLe: string | null;
+  motifAnnulation: string | null;
+  canCancel: boolean;
+  absorbeeParInventaire: boolean;
+  produit: { nom: string; unite: string };
+  declarePar: { prenom: string; nom: string };
+  annulePar: { prenom: string; nom: string } | null;
+};
+
+type LossesPageData = {
+  store: { id: number; nom: string };
+  currency: string;
+  losses: Loss[];
+  reasons: LossReasonOption[];
+  canCreate: boolean;
+  page: number;
+  totalPages: number;
+  total: number;
+};
+
+export function loader({ request }: LoaderFunctionArgs) {
+  return loadPage<LossesPageData>("/stock/pertes", request);
+}
+
+/** Pertes et casses de la boutique active : déclaration et historique annulable. */
 export default function LossesPage() {
-  const [stores, setStores] = useState<Store[]>([]); const [products, setProducts] = useState<Product[]>([]); const [losses, setLosses] = useState<Loss[]>([]);
-  const [storeId, setStoreId] = useState(""); const [productId, setProductId] = useState(""); const [quantity, setQuantity] = useState("1"); const [reason, setReason] = useState("ENDOMMAGE"); const [description, setDescription] = useState(""); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
-  const refresh = useCallback(async () => { try { const [s, p, l] = await Promise.all([read<Store[]>("/api/stores"), read<{ products: Product[] }>("/api/pages/produits"), read<Loss[]>("/api/losses")]); setStores(s); setStoreId((current) => current || String(s[0]?.id ?? "")); setProducts(p.products); setLosses(l); } catch (e) { setError(e instanceof Error ? e.message : "Chargement impossible."); } }, []);
-  useEffect(() => { void Promise.resolve().then(refresh); }, [refresh]);
-  async function submit() { setBusy(true); setError(""); try { await read("/api/losses", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ boutiqueId: Number(storeId), produitId: Number(productId), quantite: Number(quantity), motif: reason, description }) }); setQuantity("1"); setDescription(""); await refresh(); } catch (e) { setError(e instanceof Error ? e.message : "Déclaration impossible."); } finally { setBusy(false); } }
-  async function cancel(loss: Loss) { const motif = window.prompt("Motif d’annulation (le stock sera restitué)"); if (!motif) return; setError(""); try { await read(`/api/losses/${loss.id}/cancel`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ motif }) }); await refresh(); } catch (e) { setError(e instanceof Error ? e.message : "Annulation impossible."); } }
-  return <main className="space-y-6 p-6"><PageHeader title="Pertes et casses" description="Chaque déclaration retire le stock et conserve une trace annulable." />{error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-    <section className="rounded-xl border border-line bg-white p-5"><h2 className="mb-4 font-semibold">Déclarer une perte</h2><div className="grid gap-3 md:grid-cols-2"><label className="text-sm">Boutique<select className="mt-1 w-full rounded-md border p-2" value={storeId} onChange={(e) => setStoreId(e.target.value)}>{stores.map((s) => <option key={s.id} value={s.id}>{s.nom}</option>)}</select></label><label className="text-sm">Produit<select className="mt-1 w-full rounded-md border p-2" value={productId} onChange={(e) => setProductId(e.target.value)}><option value="">Choisir…</option>{products.map((p) => <option key={p.id} value={p.id}>{p.nom} · stock {p.quantiteStock}</option>)}</select></label><label className="text-sm">Quantité<input type="number" min="1" className="mt-1 w-full rounded-md border p-2" value={quantity} onChange={(e) => setQuantity(e.target.value)} /></label><label className="text-sm">Motif<select className="mt-1 w-full rounded-md border p-2" value={reason} onChange={(e) => setReason(e.target.value)}>{["ENDOMMAGE", "CASSE", "PERIME", "VOL", "PERDU", "DESTRUCTION", "AUTRE"].map((r) => <option key={r} value={r}>{r}</option>)}</select></label><label className="text-sm md:col-span-2">Description facultative<textarea className="mt-1 w-full rounded-md border p-2" value={description} onChange={(e) => setDescription(e.target.value)} /></label></div><Button className="mt-4" disabled={busy || !productId || !storeId} onClick={() => void submit()}>Enregistrer la perte</Button></section>
-    <section className="rounded-xl border border-line bg-white p-5"><h2 className="mb-3 font-semibold">Historique des pertes</h2>{losses.length ? <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th>Référence</th><th>Date</th><th>Boutique</th><th>Produit</th><th>Qté</th><th>Motif</th><th>Statut</th><th /></tr></thead><tbody>{losses.map((loss) => <tr key={loss.id} className="border-t border-line"><td className="py-3">{loss.reference}</td><td>{new Date(loss.creeLe).toLocaleDateString("fr-FR")}</td><td>{loss.boutique.nom}</td><td>{loss.produit.nom}</td><td>{loss.quantite}</td><td>{loss.motif}</td><td>{loss.statut}</td><td>{loss.statut === "ACTIVE" && loss.canCancel && <button className="text-primary" onClick={() => void cancel(loss)}>Annuler</button>}</td></tr>)}</tbody></table></div> : <p className="text-sm text-muted">Aucune perte déclarée.</p>}</section><Link to="/stock" className="text-primary">← Retour au stock</Link>
-  </main>;
+  const params = useSearchParamsRecord();
+  const router = useRouter();
+  const { push } = useToast();
+  const { store, currency, losses, reasons, canCreate, page, totalPages, total } = useLoaderData<LossesPageData>();
+  const [cancelling, setCancelling] = useState<Loss | null>(null);
+
+  async function cancel(reason: string) {
+    if (!cancelling) return;
+    const result = await sendJson(`/api/losses/${cancelling.id}/cancel`, { motif: reason });
+    if (!result.ok) return result.message;
+    push(`Perte ${cancelling.reference} annulée : stock restitué`, "success");
+    router.refresh();
+  }
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Pertes et casses"
+        description={`Boutique ${store.nom}. Chaque déclaration retire le stock et reste annulable tant qu'aucun inventaire ne l'a prise en compte.`}
+        action={
+          <LinkButton href="/stock" variant="secondary">
+            <Icon name="arrowLeft" className="h-4 w-4" />
+            Retour au stock
+          </LinkButton>
+        }
+      />
+
+      {canCreate && <LossForm reasons={reasons} onDeclared={() => router.refresh()} />}
+
+      <Card>
+        <h2 className="border-b border-slate-100 px-5 py-3 text-sm font-semibold text-slate-900">Historique</h2>
+        {losses.length === 0 ? (
+          <EmptyState icon="alert" title="Aucune perte déclarée" description="Les pertes, casses et produits périmés apparaîtront ici." />
+        ) : (
+          <>
+            <TableContainer>
+              <Table>
+                <Thead>
+                  <tr>
+                    <Th>Référence</Th>
+                    <Th>Date</Th>
+                    <Th>Produit</Th>
+                    <Th className="text-right">Quantité</Th>
+                    <Th className="text-right">Valeur</Th>
+                    <Th>Motif</Th>
+                    <Th>Statut</Th>
+                    <Th>
+                      <span className="sr-only">Actions</span>
+                    </Th>
+                  </tr>
+                </Thead>
+                <tbody>
+                  {losses.map((loss) => (
+                    <Tr key={loss.id}>
+                      <Td className="font-medium text-slate-900">{loss.reference}</Td>
+                      <Td className="text-slate-600">
+                        {formatDateTime(loss.creeLe)}
+                        <span className="block text-xs text-slate-400">
+                          {loss.declarePar.prenom} {loss.declarePar.nom}
+                        </span>
+                      </Td>
+                      <Td>{loss.produit.nom}</Td>
+                      <Td className="tabular text-right">
+                        {loss.quantite} {loss.produit.unite}
+                      </Td>
+                      <Td className="tabular text-right">{formatMoney(Number(loss.valeur), currency)}</Td>
+                      <Td>
+                        {loss.motifLibelle}
+                        {loss.description && <span className="block text-xs text-slate-500">{loss.description}</span>}
+                      </Td>
+                      <Td>
+                        <Badge dot tone={LOSS_STATUS[loss.statut]?.tone ?? "neutral"}>
+                          {LOSS_STATUS[loss.statut]?.label ?? loss.statut}
+                        </Badge>
+                        {loss.statut === "CANCELLED" && loss.motifAnnulation && (
+                          <span className="mt-1 block text-xs text-slate-500">
+                            {loss.motifAnnulation}
+                            {loss.annulePar ? ` — ${loss.annulePar.prenom} ${loss.annulePar.nom}` : ""}
+                          </span>
+                        )}
+                        {loss.absorbeeParInventaire && <span className="mt-1 block text-xs text-slate-500">Prise en compte par un inventaire</span>}
+                      </Td>
+                      <Td className="text-right">
+                        {loss.canCancel && (
+                          <button type="button" onClick={() => setCancelling(loss)} className="text-sm font-medium text-brand-700 hover:underline">
+                            Annuler
+                          </button>
+                        )}
+                      </Td>
+                    </Tr>
+                  ))}
+                </tbody>
+              </Table>
+            </TableContainer>
+            <Pagination basePath="/stock/pertes" searchParams={params} page={page} totalPages={totalPages} total={total} />
+          </>
+        )}
+      </Card>
+
+      <ReasonDialog
+        open={Boolean(cancelling)}
+        onClose={() => setCancelling(null)}
+        onConfirm={cancel}
+        title={`Annuler la perte ${cancelling?.reference ?? ""} ?`}
+        description={`Le stock de « ${cancelling?.produit.nom ?? ""} » sera recrédité de ${cancelling?.quantite ?? 0}. L'annulation est tracée dans l'historique.`}
+        confirmLabel="Annuler la perte"
+        placeholder="Ex. : produit retrouvé, erreur de saisie…"
+        danger
+      />
+    </div>
+  );
 }

@@ -9,7 +9,7 @@ import { Modal, ModalFooter } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { FormField, inputClass } from "@/components/ui/FormField";
 import { useToast } from "@/components/ui/ToastProvider";
-import { apiFetch } from "@/lib/api";
+import { sendJson, useIdempotencyKey } from "@/lib/mutation";
 
 export function StockAdjustModal({
   open,
@@ -27,6 +27,9 @@ export function StockAdjustModal({
   currentQuantity: number;
 }) {
   const { push } = useToast();
+  // Même clé jusqu'au succès : un double clic ou un nouvel essai après une
+  // coupure réseau n'applique jamais l'ajustement deux fois.
+  const idempotency = useIdempotencyKey();
   const {
     register,
     handleSubmit,
@@ -37,18 +40,13 @@ export function StockAdjustModal({
   });
 
   async function onSubmit(data: StockAdjustmentFormData) {
-    const response = await apiFetch(`/api/products/${productId}/stock`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    const body = await response.json().catch(() => null);
-
-    if (!response.ok) {
-      push(body?.message ?? "Ajustement impossible", "error");
+    const result = await sendJson(`/api/products/${productId}/stock`, data, { idempotencyKey: idempotency.get() });
+    if (!result.ok) {
+      push(result.message, "error");
       return;
     }
 
+    idempotency.reset();
     push("Stock ajusté", "success");
     reset();
     onSaved();

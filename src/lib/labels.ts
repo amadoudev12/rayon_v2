@@ -44,3 +44,16 @@ export const MOVEMENT_LABELS: Record<string, { label: string; tone: "success" | 
   LOSS: { label: "Perte / casse", tone: "danger" },
   LOSS_CANCELLATION: { label: "Perte annulée", tone: "success" },
 };
+
+/** Statut d'une déclaration de perte. */
+export const LOSS_STATUS: Record<string, { label: string; tone: "danger" | "neutral" }> = {
+  ACTIVE: { label: "Active", tone: "danger" },
+  CANCELLED: { label: "Annulée", tone: "neutral" },
+};
+
+/** Libellé et couleur d'un niveau de stock. */
+export const STOCK_LEVEL: Record<"OUT" | "LOW" | "NORMAL", { label: string; tone: "danger" | "warning" | "success" }> = {
+  OUT: { label: "Rupture", tone: "danger" },
+  LOW: { label: "Stock faible", tone: "warning" },
+  NORMAL: { label: "Normal", tone: "success" },
+};
