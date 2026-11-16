@@ -137,7 +137,7 @@ export function OnboardingWizard() {
             <FormField label="Adresse (optionnel)" htmlFor="adresseBoutique">
               <input id="adresseBoutique" className={inputClass} {...orgForm.register("adresseBoutique")} />
             </FormField>
-            <FormField label="Téléphone (optionnel)" htmlFor="telephoneBoutique">
+            <FormField label="Téléphone " htmlFor="telephoneBoutique">
               <input id="telephoneBoutique" className={inputClass} {...orgForm.register("telephoneBoutique")} />
             </FormField>
           </div>
